@@ -1,0 +1,3 @@
+[submodule "rl_games"]
+	path = rl_games
+	url = git@git.tsinghua.edu.cn:xcar/rl_games.git
