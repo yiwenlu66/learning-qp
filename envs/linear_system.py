@@ -48,7 +48,7 @@ class LinearSystem():
         rew_done = -1.0 * (self.is_done == 1)
         if not self.quiet:
             print(rew_main.mean().item(), rew_state_bar.mean().item(), rew_done.mean().item())
-        return 10 + 0.01 * rew_main + rew_state_bar + 10 * rew_done
+        return 10 + 0.01 * rew_main + 10 * rew_state_bar + 10 * rew_done
 
     def done(self):
         return self.is_done.bool()

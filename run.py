@@ -63,7 +63,7 @@ envs = {
         ]),
         Q=np.eye(4),
         R=0.1 * np.eye(2),
-        sqrt_W=np.eye(4),
+        sqrt_W=0.1 * np.eye(4),
         x_min=np.zeros(4),
         x_max=20 * np.ones(4),
         u_min=np.zeros(2),
