@@ -45,3 +45,12 @@ def vectorize_upper_triangular(matrices):
     upper_triangular = upper_triangular.view(b, n * (n + 1) // 2)
 
     return upper_triangular
+
+def generate_random_problem(bs, n, m, device):
+    P_params = -1 + 2 * torch.rand((bs, n, n), device=device)
+    q = -1 + 2 * torch.rand((bs, n), device=device)
+    H_params = -1 + 2 * torch.rand((bs, m, n), device=device)
+    b = -1 + 2 * torch.rand((bs, m), device=device)
+    P = make_psd(P_params, min_eig=1e-4)
+    H = H_params.view(-1, self.m_qp, self.n_qp)
+    return q, b, P, H
