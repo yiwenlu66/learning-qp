@@ -3,7 +3,7 @@ from tqdm import tqdm
 import os
 import sys
 file_path = os.path.dirname(__file__)
-sys.path.append(os.path.join(file_path, "rl_games"))
+sys.path.append(os.path.join(file_path, ".."))
 from modules.warm_starter import WarmStarter
 from modules.qp_solver import QPSolver
 from utils.utils import generate_random_problem
