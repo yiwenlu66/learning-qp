@@ -1,4 +1,6 @@
 import torch
+from torch.nn import functional as F
+import numpy as np
 
 def bmv(A, b):
     """Compute matrix multiply vector in batch mode."""

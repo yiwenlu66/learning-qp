@@ -69,7 +69,7 @@ class QPSolver(nn.Module):
         if self.warm_starter is not None:
             with torch.set_grad_enabled(self.is_warm_starter_trainable):
                 self.X0 = self.warm_starter(q, b, P, H)
-        bHinv = self.bHinv if self.bHinv is not None else pinv(bH)
+        bHinv = self.bHinv if self.bHinv is not None else pinv(H)
         get_primal_sol = lambda X: bmv(bHinv, X[:, self.m:] - b)  # solve Hx + b = z
         if self.keep_X:
             Xs[:, 0, :] = self.X0.clone()

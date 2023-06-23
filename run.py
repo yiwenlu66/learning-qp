@@ -13,7 +13,10 @@ import glob
 import copy
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 import numpy as np
+from networks.a2c_qp_unrolled import A2CQPUnrolledBuilder
+from rl_games.algos_torch import model_builder
 
+model_builder.register_network('qp_unrolled', A2CQPUnrolledBuilder)
 
 @contextmanager
 def suppress_stdout_stderr():
@@ -38,6 +41,10 @@ parser.add_argument("--save-freq", type=int, default=10)
 parser.add_argument("--epoch-index", type=int, default=-1, help="For test only, -1 for using latest")
 parser.add_argument("--quiet", action='store_true')
 parser.add_argument("--device", type=str, default='cuda:0')
+parser.add_argument("--qp-unrolled", action='store_true')
+parser.add_argument("--n-qp", type=int, default=10)
+parser.add_argument("--m-qp", type=int, default=10)
+parser.add_argument("--qp-iter", type=int, default=10)
 args = parser.parse_args()
 
 
@@ -111,6 +118,15 @@ runner_config["params"]["network"]["mlp"]["units"] = [args.mlp_size_last * i for
 runner_config["params"]["config"]["save_frequency"] = args.save_freq
 runner_config["params"]["config"]["device"] = args.device
 runner_config["params"]["network"].pop("rnn")
+
+if args.qp_unrolled:
+    runner_config["params"]["network"]["name"] = "qp_unrolled"
+    runner_config["params"]["network"]["custom"] = {
+        "n_qp": args.n_qp,
+        "m_qp": args.m_qp,
+        "qp_iter": args.qp_iter,
+        "device": args.device,
+    }
 
 if args.quiet:
     with suppress_stdout_stderr():
