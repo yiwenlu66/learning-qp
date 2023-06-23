@@ -76,3 +76,12 @@ def interpolate_state_dicts(state_dict_1, state_dict_2, weight):
     return {
         key: (1 - weight) * state_dict_1[key] + weight * state_dict_2[key] for key in state_dict_1.keys()
     }
+
+def generate_random_problem(bs, n, m, device):
+    P_params = -1 + 2 * torch.rand((bs, n, n), device=device)
+    q = -1 + 2 * torch.rand((bs, n), device=device)
+    H_params = -1 + 2 * torch.rand((bs, m, n), device=device)
+    b = -1 + 2 * torch.rand((bs, m), device=device)
+    P = make_psd(P_params, min_eig=1e-4)
+    H = H_params.view(-1, self.m_qp, self.n_qp)
+    return q, b, P, H
