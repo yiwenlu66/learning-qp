@@ -63,8 +63,8 @@ class LinearSystem():
         is_done = self.is_done.bool() if need_reset is None else need_reset
         size = torch.sum(is_done)
         self.step_count[is_done] = 0
-        self.x_ref[is_done, :] = self.x_min + (self.x_max - self.x_min) * torch.rand((size, self.n), device=self.device) if x_ref is None else x_ref
-        self.x[is_done, :] = self.x_min + (self.x_max - self.x_min) * torch.rand((size, self.n), device=self.device) if x is None else x
+        self.x_ref[is_done, :] = self.x_min + self.barrier_thresh + (self.x_max - self.x_min - 2 * self.barrier_thresh) * torch.rand((size, self.n), device=self.device) if x_ref is None else x_ref
+        self.x[is_done, :] = self.x_min + self.barrier_thresh + (self.x_max - self.x_min - 2 * self.barrier_thresh) * torch.rand((size, self.n), device=self.device) if x is None else x
         self.is_done[is_done] = 0
 
     def reset(self, x=None, x_ref=None):
