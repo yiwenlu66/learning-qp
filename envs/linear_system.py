@@ -29,7 +29,7 @@ class LinearSystem():
         self.max_steps = max_steps
         self.num_states = self.n
         self.num_actions = self.m
-        self.observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(self.n,))
+        self.observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(2 * self.n,))
         self.action_space = gym.spaces.Box(low=u_min, high=u_max, shape=(self.m,))
         self.state_space = self.observation_space
         self.x = 0.5 * (self.x_max + self.x_min) * torch.ones((bs, self.n), device=device)
