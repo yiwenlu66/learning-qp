@@ -1,5 +1,6 @@
 import numpy as np
 from tqdm import tqdm
+import os
 file_path = os.path.dirname(__file__)
 sys.path.append(os.path.join(file_path, "rl_games"))
 from modules.warm_starter import WarmStarter
