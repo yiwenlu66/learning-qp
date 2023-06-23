@@ -35,7 +35,7 @@ class QPUnrolledNetwork(nn.Module):
         self.solver = QPSolver(device, n_qp, m_qp)
 
     def forward(self, x):
-        qp_params = self.mlp(x).float()
+        qp_params = self.mlp(x)
 
         start = 0
         end = self.n_P_param
