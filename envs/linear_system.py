@@ -84,4 +84,4 @@ class LinearSystem():
         return self.obs(), self.reward(), self.done(), self.info()
 
     def render(self, **kwargs):
-        print(self.x, self.u)
+        print(self.x, self.x_ref, self.u)
