@@ -1,4 +1,3 @@
-import setup_problem
 import numpy as np
 from tqdm import tqdm
 file_path = os.path.dirname(__file__)
@@ -8,7 +7,6 @@ from modules.qp_solver import QPSolver
 from utils.utils import generate_random_problem
 import torch
 from torch.nn import functional as F
-from matplotlib import pyplot as plt
 import argparse
 import traceback
 from pathlib import Path
