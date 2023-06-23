@@ -76,7 +76,7 @@ envs = {
         u_min=-np.ones(2),
         u_max=8 * np.ones(2),
         barrier_thresh=1.,
-        max_steps=200,
+        max_steps=1000,
         **kwargs,
     ),
 }
