@@ -82,3 +82,6 @@ class LinearSystem():
         self.is_done[torch.logical_not(self.check_in_bound()).nonzero()] = 1   # 1 for failure
         self.is_done[self.step_count >= self.max_steps] = 2  # 2 for timeout
         return self.obs(), self.reward(), self.done(), self.info()
+
+    def render(self, **kwargs):
+        print(self.x, self.u)

@@ -85,7 +85,7 @@ default_env_config = {
     "random_seed": args.seed,
     "quiet": args.quiet,
     "device": args.device,
-    "bs": args.num_parallel,
+    "bs": get_num_parallel(),
 }
 blacklist_keys = lambda d, blacklist: {k: d[k] for k in d if not (k in blacklist)}
 vecenv.register('RLGPU',
