@@ -40,7 +40,7 @@ class LinearSystem():
         self.quiet = quiet
 
     def obs(self):
-        return self.x
+        return torch.cat([self.x, self.x_ref], -1)
 
     def reward(self):
         rew_main = -bqf(self.x, self.Q) - bqf(self.u, self.R)
