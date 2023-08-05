@@ -29,7 +29,7 @@ class A2CQPUnrolled(A2CBuilder.Network):
             }
             return self._build_mlp(**policy_mlp_args)
 
-        self.policy_net = QPUnrolledNetwork(self.device, self.n_obs, self.n_qp, self.m_qp, self.qp_iter, mlp_builder)
+        self.policy_net = QPUnrolledNetwork(self.device, self.n_obs, self.n_qp, self.m_qp, self.qp_iter, mlp_builder, shared_PH=self.shared_PH)
         self.mu_out = nn.Linear(self.n_qp, actions_num)
 
         # TODO: exploit structure in value function?
@@ -73,6 +73,7 @@ class A2CQPUnrolled(A2CBuilder.Network):
         self.n_qp = params["custom"]["n_qp"]
         self.m_qp = params["custom"]["m_qp"]
         self.qp_iter = params["custom"]["qp_iter"]
+        self.shared_PH = params["custom"]["shared_PH"]
 
 class A2CQPUnrolledBuilder(NetworkBuilder):
     def __init__(self, **kwargs):

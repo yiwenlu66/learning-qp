@@ -42,9 +42,10 @@ parser.add_argument("--epoch-index", type=int, default=-1, help="For test only, 
 parser.add_argument("--quiet", action='store_true')
 parser.add_argument("--device", type=str, default='cuda:0')
 parser.add_argument("--qp-unrolled", action='store_true')
-parser.add_argument("--n-qp", type=int, default=10)
-parser.add_argument("--m-qp", type=int, default=10)
+parser.add_argument("--n-qp", type=int, default=5)
+parser.add_argument("--m-qp", type=int, default=4)
 parser.add_argument("--qp-iter", type=int, default=10)
+parser.add_argument("--shared-PH", action="store_true")
 args = parser.parse_args()
 
 
@@ -125,6 +126,7 @@ if args.qp_unrolled:
         "n_qp": args.n_qp,
         "m_qp": args.m_qp,
         "qp_iter": args.qp_iter,
+        "shared_PH": args.shared_PH,
         "device": args.device,
     }
 
