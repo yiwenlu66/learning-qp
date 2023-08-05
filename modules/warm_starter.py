@@ -19,9 +19,11 @@ class WarmStarter(nn.Module):
         if not fixed_H:
             num_in += n * m
         num_out = 2 * m
-        num_hidden = num_out
+        num_hidden = max(num_in, num_out)
         self.net = nn.Sequential(
             nn.Linear(num_in, num_hidden),
+            nn.ReLU(),
+            nn.Linear(num_hidden, num_hidden),
             nn.ReLU(),
             nn.Linear(num_hidden, num_out),
         ).to(device=device)

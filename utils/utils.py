@@ -1,6 +1,7 @@
 import torch
 from torch.nn import functional as F
 import numpy as np
+import qpsolvers
 
 def bmv(A, b):
     """Compute matrix multiply vector in batch mode."""
@@ -32,25 +33,35 @@ def vectorize_upper_triangular(matrices):
     b, n, _ = matrices.shape
 
     # Create the indices for the upper triangular part
-    row_indices, col_indices = torch.triu_indices(n, n)
+    row_indices, col_indices = torch.triu_indices(n, n, device=matrices.device)
 
-    # Expand dims and repeat for batch size
-    row_indices = row_indices[None, :].expand(b, -1)
-    col_indices = col_indices[None, :].expand(b, -1)
+    # Create a mask of shape (b, n, n)
+    mask = torch.zeros((b, n, n), device=matrices.device, dtype=torch.bool)
+    
+    # Set the upper triangular part of the mask to True
+    mask[:, row_indices, col_indices] = True
 
-    # Use gather to extract the upper triangular part
-    upper_triangular = matrices.gather(1, row_indices.unsqueeze(2)).gather(2, col_indices.unsqueeze(2))
+    # Use the mask to extract the upper triangular part
+    upper_triangular = matrices[mask]
 
     # Reshape the result to the desired shape
-    upper_triangular = upper_triangular.view(b, n * (n + 1) // 2)
+    upper_triangular = upper_triangular.view(b, -1)
 
     return upper_triangular
 
 def generate_random_problem(bs, n, m, device):
-    P_params = -1 + 2 * torch.rand((bs, n, n), device=device)
+    P_params = -1 + 2 * torch.rand((bs, n * (n + 1) // 2), device=device)
     q = -1 + 2 * torch.rand((bs, n), device=device)
-    H_params = -1 + 2 * torch.rand((bs, m, n), device=device)
-    b = -1 + 2 * torch.rand((bs, m), device=device)
-    P = make_psd(P_params, min_eig=1e-4)
-    H = H_params.view(-1, self.m_qp, self.n_qp)
+    H_params = -1 + 2 * torch.rand((bs, m * n), device=device)
+    x0 = -1 + 2 * torch.rand((bs, n), device=device)
+    P = make_psd(P_params)
+    H = H_params.view(-1, m, n)
+    b = bmv(H, x0)
     return q, b, P, H
+
+def osqp_oracle(q, b, P, H):
+    return qpsolvers.solvers.osqp_.osqp_solve_qp(
+        P=P, q=q, G=-H, h=b,
+        A=None, b=None, lb=None, ub=None,
+        max_iter=30000, eps_abs=1e-10, eps_rel=1e-10,eps_prim_inf=1e-10, eps_dual_inf=1e-10, verbose=False
+    )

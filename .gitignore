@@ -161,4 +161,4 @@ cython_debug/
 
 runs/
 data/
-
+auxiliary/models

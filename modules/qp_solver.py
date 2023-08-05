@@ -20,14 +20,16 @@ class QPSolver(nn.Module):
             preconditioner=None, warm_starter=None,
             is_warm_starter_trainable=False,
             keep_X=True):
-        """Specify P, H for fixed P, H, otherwise P, H needed to be given at forward."""
+        """Specify P, H for fixed P, H, otherwise P, H needed to be given at forward.
+        
+        Assumes that H is full column rank when m >= n, and full row rank otherwise
+        """
         super().__init__()
         self.device = device
         self.n = n
         self.m = m
         self.bP = torch.tensor(P, dtype=torch.float, device=device).unsqueeze(0) if P is not None else None       # (1, n, n)
         self.bH = torch.tensor(H, dtype=torch.float, device=device).unsqueeze(0) if H is not None else None       # (1, m, n)
-        self.bHinv = pinv(self.bH) if H is not None else None
         self.alpha = alpha
         self.beta = beta
         if preconditioner is None:
@@ -40,6 +42,21 @@ class QPSolver(nn.Module):
         self.keep_X = keep_X
         self.bIm = torch.eye(m, device=device).unsqueeze(0)
         self.X0 = torch.zeros((1, 2 * self.m), device=self.device)
+        self.get_sol = self.get_sol_transform(self.bP, self.bH) if self.bP is not None and self.bH is not None else None
+
+    def get_sol_transform(self, bP, bH):
+        """Get the transform from z to x."""
+        if self.m >= self.n:
+            return lambda z, q, b: bmv(pinv(bH), z - b)
+        else:
+            def get_sol(z, q, b):
+                t = lambda bM: bM.transpose(-1, -2)
+                bPinvHt = solve(bP, t(bH))
+                Mt = solve(t(bH @ bPinvHt), t(bPinvHt))
+                M = t(Mt)
+                bPinvq = solve(bP, q)
+                return bmv(M @ bH, bPinvq) - bPinvq + bmv(M, z - b)
+            return get_sol
 
     def get_AB(self, q, b, P=None, H=None):
         # q: (bs, n), b: (bs, m)
@@ -69,11 +86,10 @@ class QPSolver(nn.Module):
         if self.warm_starter is not None:
             with torch.set_grad_enabled(self.is_warm_starter_trainable):
                 self.X0 = self.warm_starter(q, b, P, H)
-        bHinv = self.bHinv if self.bHinv is not None else pinv(H)
-        get_primal_sol = lambda X: bmv(bHinv, X[:, self.m:] - b)  # solve Hx + b = z
+        get_sol = self.get_sol if self.get_sol is not None else self.get_sol_transform(P, H)
         if self.keep_X:
             Xs[:, 0, :] = self.X0.clone()
-        primal_sols[:, 0, :] = get_primal_sol(self.X0)
+        primal_sols[:, 0, :] = get_sol(self.X0[:, self.m:], q, b)
         X = self.X0
         A, B = self.get_AB(q, b, P, H)
         for k in range(1, iters + 1):
@@ -81,5 +97,5 @@ class QPSolver(nn.Module):
             F.relu(X[:, self.m:], inplace=True)    # do projection
             if self.keep_X:
                 Xs[:, k, :] = X.clone()
-            primal_sols[:, k, :] = get_primal_sol(X)
+            primal_sols[:, k, :] = get_sol(X[:, self.m:], q, b)
         return Xs, primal_sols
