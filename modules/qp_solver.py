@@ -85,7 +85,8 @@ class QPSolver(nn.Module):
         primal_sols = torch.zeros((bs, iters + 1, self.n), device=self.device)
         if self.warm_starter is not None:
             with torch.set_grad_enabled(self.is_warm_starter_trainable):
-                self.X0 = self.warm_starter(q, b, P, H)
+                qd, bd, Pd, Hd = map(lambda t: t.detach() if t is not None else None, [q, b, P, H])
+                self.X0 = self.warm_starter(qd, bd, Pd, Hd)
         get_sol = self.get_sol if self.get_sol is not None else self.get_sol_transform(P, H)
         if self.keep_X:
             Xs[:, 0, :] = self.X0.clone()
