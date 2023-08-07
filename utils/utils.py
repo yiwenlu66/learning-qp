@@ -65,3 +65,8 @@ def osqp_oracle(q, b, P, H):
         A=None, b=None, lb=None, ub=None,
         max_iter=30000, eps_abs=1e-10, eps_rel=1e-10,eps_prim_inf=1e-10, eps_dual_inf=1e-10, verbose=False
     )
+
+def interpolate_state_dicts(state_dict_1, state_dict_2, weight):
+    return {
+        key: (1 - weight) * state_dict_1[key] + weight * state_dict_2[key] for key in state_dict_1.keys()
+    }

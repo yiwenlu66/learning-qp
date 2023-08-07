@@ -29,7 +29,18 @@ class A2CQPUnrolled(A2CBuilder.Network):
             }
             return self._build_mlp(**policy_mlp_args)
 
-        self.policy_net = QPUnrolledNetwork(self.device, self.n_obs, self.n_qp, self.m_qp, self.qp_iter, mlp_builder, shared_PH=self.shared_PH, use_warm_starter=self.use_warm_starter, train_warm_starter=self.train_warm_starter)
+        self.policy_net = QPUnrolledNetwork(
+            self.device,
+            self.n_obs,
+            self.n_qp,
+            self.m_qp,
+            self.qp_iter,
+            mlp_builder,
+            shared_PH=self.shared_PH,
+            use_warm_starter=self.use_warm_starter,
+            train_warm_starter=self.train_warm_starter,
+            ws_loss_coef=self.ws_loss_coef
+        )
         self.mu_out = nn.Linear(self.n_qp, actions_num)
 
         # TODO: exploit structure in value function?
@@ -79,6 +90,7 @@ class A2CQPUnrolled(A2CBuilder.Network):
         self.shared_PH = params["custom"]["shared_PH"]
         self.use_warm_starter = params["custom"]["use_warm_starter"]
         self.train_warm_starter = params["custom"]["train_warm_starter"]
+        self.ws_loss_coef = params["custom"]["ws_loss_coef"]
 
 class A2CQPUnrolledBuilder(NetworkBuilder):
     def __init__(self, **kwargs):
