@@ -6,7 +6,7 @@ from modules.qp_unrolled_network import QPUnrolledNetwork
 
 class A2CQPUnrolled(A2CBuilder.Network):
     def __init__(self, params, **kwargs):
-        actions_num = kwargs.pop('actions_num')
+        self.actions_num = kwargs.pop('actions_num')
         input_shape = kwargs.pop('input_shape')
         self.value_size = kwargs.pop('value_size', 1)
 
@@ -41,7 +41,6 @@ class A2CQPUnrolled(A2CBuilder.Network):
             train_warm_starter=self.train_warm_starter,
             ws_loss_coef=self.ws_loss_coef
         )
-        self.mu_out = nn.Linear(self.n_qp, actions_num)
 
         # TODO: exploit structure in value function?
         value_mlp_args = {
@@ -56,7 +55,7 @@ class A2CQPUnrolled(A2CBuilder.Network):
         self.value_net = self._build_mlp(**value_mlp_args)
 
         sigma_init = self.init_factory.create(**self.space_config['sigma_init'])
-        self.sigma = nn.Parameter(torch.zeros(actions_num, requires_grad=True, dtype=torch.float32), requires_grad=True)
+        self.sigma = nn.Parameter(torch.zeros(self.actions_num, requires_grad=True, dtype=torch.float32), requires_grad=True)
 
         mlp_init = self.init_factory.create(**self.initializer)
 
@@ -71,7 +70,7 @@ class A2CQPUnrolled(A2CBuilder.Network):
 
     def forward(self, obs_dict):
         obs = obs_dict['obs']
-        mu = self.mu_out(self.policy_net(obs))
+        mu = self.policy_net(obs)[:, :self.actions_num]
         value = self.value_net(obs)
         sigma = self.sigma
         states = None   # reserved for RNN
