@@ -29,6 +29,7 @@ class WarmStarter(nn.Module):
         ).to(device=device)
 
     def forward(self, q, b, P=None, H=None):
+        """The P argument can be either P or inv(P) in the original PDHG formulation, as long as consistent."""
         net_input = [q, b]
         if not self.fixed_P:
             net_input.append(vectorize_upper_triangular(P))

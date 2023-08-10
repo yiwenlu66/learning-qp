@@ -5,7 +5,7 @@ from torch.linalg import solve, inv, pinv
 import numpy as np
 
 from .preconditioner import Preconditioner
-from utils.utils import bmv
+from utils.utils import bmv, bma
 
 class QPSolver(nn.Module):
     """
@@ -44,30 +44,48 @@ class QPSolver(nn.Module):
         self.X0 = torch.zeros((1, 2 * self.m), device=self.device)
         self.get_sol = self.get_sol_transform(self.bP, self.bH) if self.bP is not None and self.bH is not None else None
 
-    def get_sol_transform(self, bP, bH):
-        """Get the transform from z to x."""
+    def get_sol_transform(self, bH, bP=None, bPinv=None):
+        """Get the transform from z to x.
+        
+        Must specifying exactly one of bP or bPinv; specifying bPinv can reduce number of linear solves.
+        """
         if self.m >= self.n:
             return lambda z, q, b: bmv(pinv(bH), z - b)
         else:
+            bP_param = bP if bP is not None else bPinv
+            op = solve if bP is not None else bma
             def get_sol(z, q, b):
                 t = lambda bM: bM.transpose(-1, -2)
-                bPinvHt = solve(bP, t(bH))
+                bPinvHt = op(bP_param, t(bH))
                 Mt = solve(t(bH @ bPinvHt), t(bPinvHt))
                 M = t(Mt)
-                bPinvq = solve(bP, q)
+                bPinvq = op(bP_param, q)
                 return bmv(M @ bH, bPinvq) - bPinvq + bmv(M, z - b)
             return get_sol
 
-    def get_AB(self, q, b, P=None, H=None):
+    def get_AB(self, q, b, H=None, P=None, Pinv=None):
+        """When P is not fixed, specifying exact one of P or Pinv; specifying bPinv can reduce number of linear solves."""
         # q: (bs, n), b: (bs, m)
-        bP = self.bP.broadcast_to((q.shape[0], -1, -1)) if self.bP is not None else P
+        if self.bP is not None:
+            bP_param = self.bP
+            P_is_inv = False
+        else:
+            if P is not None:
+                bP_param = P
+                P_is_inv = False
+            else:
+                bP_param = Pinv
+                P_is_inv = True
+        op = solve if not P_is_inv else bma
+
         bH = self.bH if self.bH is not None else H
-        D, tD = self.preconditioner(q, b, P, H)   # (bs, m, m) or (1, m, m)
-        mu = bmv(tD, bmv(bH, solve(bP, q)) - b)  # (bs, m)
+        D, tD = self.preconditioner(q, b, bP_param, H, input_P_is_inversed=P_is_inv, output_tD_is_inversed=False)   # (bs, m, m) or (1, m, m)
+        mu = bmv(tD, bmv(bH, op(bP_param, q)) - b)  # (bs, m)
+        tDD = tD @ D
 
         A = torch.cat([
-            torch.cat([tD @ D, tD], 2),
-            torch.cat([-2 * self.alpha * tD @ D + self.bIm, self.bIm - 2 * self.alpha * tD], 2),
+            torch.cat([tDD, tD], 2),
+            torch.cat([-2 * self.alpha * tDD + self.bIm, self.bIm - 2 * self.alpha * tD], 2),
         ], 1)   # (bs, 2m, 2m)
         B = torch.cat([
             mu,
@@ -75,7 +93,10 @@ class QPSolver(nn.Module):
         ], 1)   # (bs, 2m)
         return A, B
 
-    def forward(self, q, b, P=None, H=None, iters=1000):
+    def forward(self, q, b, P=None, H=None, Pinv=None, iters=1000):
+        """
+        Pass in one of P and Pinv when P is not specified as fixed. Using Pinv is more efficient in learned setting.
+        """
         # q: (bs, n), b: (bs, m)
         bs = q.shape[0]
         if self.keep_X:
@@ -85,14 +106,15 @@ class QPSolver(nn.Module):
         primal_sols = torch.zeros((bs, iters + 1, self.n), device=self.device)
         if self.warm_starter is not None:
             with torch.set_grad_enabled(self.is_warm_starter_trainable):
-                qd, bd, Pd, Hd = map(lambda t: t.detach() if t is not None else None, [q, b, P, H])
-                self.X0 = self.warm_starter(qd, bd, Pd, Hd)
-        get_sol = self.get_sol if self.get_sol is not None else self.get_sol_transform(P, H)
+                qd, bd, Pd, Hd, Pinvd = map(lambda t: t.detach() if t is not None else None, [q, b, P, H, Pinv])
+                P_param_to_ws = Pd if Pd is not None else Pinvd
+                self.X0 = self.warm_starter(qd, bd, P_param_to_ws, Hd)
+        get_sol = self.get_sol if self.get_sol is not None else self.get_sol_transform(H, P, Pinv)
         if self.keep_X:
             Xs[:, 0, :] = self.X0.clone()
         primal_sols[:, 0, :] = get_sol(self.X0[:, self.m:], q, b)
         X = self.X0
-        A, B = self.get_AB(q, b, P, H)
+        A, B = self.get_AB(q, b, H, P, Pinv)
         for k in range(1, iters + 1):
             X = bmv(A, X) + B   # (bs, 2m)
             F.relu(X[:, self.m:], inplace=True)    # do projection

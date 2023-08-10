@@ -5,7 +5,16 @@ import qpsolvers
 
 def bmv(A, b):
     """Compute matrix multiply vector in batch mode."""
-    return (A @ b.unsqueeze(-1)).squeeze(-1)
+    bs = b.shape[0]
+    if A.shape[0] == 1:
+        # The same A for different b's; use matrix multiplication instead of broadcasting
+        return (A.squeeze(0) @ b.t()).t()
+    else:
+        return (A @ b.unsqueeze(-1)).squeeze(-1)
+
+def bma(A, B):
+    """Batch-matrix-times-any, where any can be matrix or vector."""
+    return (A @ B) if A.dim() == B.dim() else bmv(A, B)
 
 def bvv(x, y):
     """Compute vector dot product in batch mode."""

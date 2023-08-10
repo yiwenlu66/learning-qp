@@ -47,7 +47,10 @@ class Preconditioner(nn.Module):
                     nn.Linear(num_in, num_param),
                 ).to(device=device)
 
-    def forward(self, q=None, b=None, P=None, H=None):
+    def forward(self, q=None, b=None, P=None, H=None,
+        input_P_is_inversed=False,
+        output_tD_is_inversed=False,
+    ):
         # q: (bs, n), b: (bs, m)
         if self.dummy:
             D = torch.eye(self.m, device=self.device)
@@ -64,8 +67,12 @@ class Preconditioner(nn.Module):
             D = make_psd(self.D_net(net_input_t))        # (bs, m, m)
         D /= self.beta
         bH = self.bH if self.bH is not None else H
-        bP = self.bP if self.bP is not None else P
-        bHPinvHt = self.bHPinvHt if self.bHPinvHt is not None else (bH @ solve(bP, bH.transpose(-1, -2)))
-        tD = inv(D + bHPinvHt)   # (*, m, m)
-        return D, tD
-
+        bP_param = self.bP if self.bP is not None else P
+        op = solve if not input_P_is_inversed else torch.matmul
+        bHPinvHt = self.bHPinvHt if self.bHPinvHt is not None else (bH @ op(bP_param, bH.transpose(-1, -2)))
+        tD_inv = D + bHPinvHt
+        if output_tD_is_inversed:
+            return D, tD_inv
+        else:
+            tD = inv(tD_inv)   # (*, m, m)
+            return D, tD
