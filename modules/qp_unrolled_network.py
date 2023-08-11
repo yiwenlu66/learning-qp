@@ -20,6 +20,7 @@ class QPUnrolledNetwork(nn.Module):
         train_warm_starter=False,
         ws_loss_coef=1.,
         ws_update_rate=0.01,
+        ws_loss_shaper=lambda x: x ** (1 / 2),
     ):
         """mlp_builder is a function mapping (input_size, output_size) to a nn.Sequential object.
         
@@ -55,6 +56,7 @@ class QPUnrolledNetwork(nn.Module):
         self.train_warm_starter = train_warm_starter
         self.ws_loss_coef = ws_loss_coef
         self.ws_update_rate = ws_update_rate
+        self.ws_loss_shaper = ws_loss_shaper
 
         # is_warm_starter_trainable is always False, since the warm starter is trained via another inference independent of the solver
         self.solver = QPSolver(device, n_qp, m_qp, warm_starter=self.warm_starter_delayed, is_warm_starter_trainable=False)
@@ -66,7 +68,7 @@ class QPUnrolledNetwork(nn.Module):
         qd, bd, Pinvd, Hd = map(lambda t: t.detach() if t is not None else None, [q, b, Pinv, H])
         X0 = self.warm_starter(qd, bd, Pinvd, Hd)
         gt = solver_Xs[:, -1, :].detach()
-        return self.ws_loss_coef * ((gt - X0) ** 2).sum(dim=-1).mean()
+        return self.ws_loss_coef * self.ws_loss_shaper(((gt - X0) ** 2).sum(dim=-1).mean())
 
     def forward(self, x):
         bs = x.shape[0]

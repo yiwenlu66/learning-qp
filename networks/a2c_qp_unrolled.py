@@ -39,7 +39,8 @@ class A2CQPUnrolled(A2CBuilder.Network):
             shared_PH=self.shared_PH,
             use_warm_starter=self.use_warm_starter,
             train_warm_starter=self.train_warm_starter,
-            ws_loss_coef=self.ws_loss_coef
+            ws_loss_coef=self.ws_loss_coef,
+            ws_update_rate=self.ws_update_rate,
         )
 
         # TODO: exploit structure in value function?
@@ -90,6 +91,7 @@ class A2CQPUnrolled(A2CBuilder.Network):
         self.use_warm_starter = params["custom"]["use_warm_starter"]
         self.train_warm_starter = params["custom"]["train_warm_starter"]
         self.ws_loss_coef = params["custom"]["ws_loss_coef"]
+        self.ws_update_rate = params["custom"]["ws_update_rate"]
 
 class A2CQPUnrolledBuilder(NetworkBuilder):
     def __init__(self, **kwargs):

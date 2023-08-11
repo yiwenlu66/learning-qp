@@ -47,7 +47,8 @@ parser.add_argument("--m-qp", type=int, default=4)
 parser.add_argument("--qp-iter", type=int, default=10)
 parser.add_argument("--shared-PH", action="store_true")
 parser.add_argument("--warm-start", action="store_true")
-parser.add_argument("--ws-loss-coef", type=float, default=1.)
+parser.add_argument("--ws-loss-coef", type=float, default=10.)
+parser.add_argument("--ws-update-rate", type=float, default=0.1)
 args = parser.parse_args()
 
 
@@ -132,6 +133,7 @@ if args.qp_unrolled:
         "use_warm_starter": args.warm_start,
         "train_warm_starter": args.warm_start and args.train_or_test == "train",
         "ws_loss_coef": args.ws_loss_coef,
+        "ws_update_rate": args.ws_update_rate,
         "device": args.device,
     }
 
