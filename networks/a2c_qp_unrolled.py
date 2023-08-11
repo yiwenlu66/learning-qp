@@ -37,6 +37,7 @@ class A2CQPUnrolled(A2CBuilder.Network):
             self.qp_iter,
             mlp_builder,
             shared_PH=self.shared_PH,
+            affine_qb=self.affine_qb,
             use_warm_starter=self.use_warm_starter,
             train_warm_starter=self.train_warm_starter,
             ws_loss_coef=self.ws_loss_coef,
@@ -88,6 +89,7 @@ class A2CQPUnrolled(A2CBuilder.Network):
         self.m_qp = params["custom"]["m_qp"]
         self.qp_iter = params["custom"]["qp_iter"]
         self.shared_PH = params["custom"]["shared_PH"]
+        self.affine_qb = params["custom"]["affine_qb"]
         self.use_warm_starter = params["custom"]["use_warm_starter"]
         self.train_warm_starter = params["custom"]["train_warm_starter"]
         self.ws_loss_coef = params["custom"]["ws_loss_coef"]

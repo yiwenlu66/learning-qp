@@ -16,6 +16,7 @@ class QPUnrolledNetwork(nn.Module):
     def __init__(
         self, device, input_size, n_qp, m_qp, qp_iter, mlp_builder,
         shared_PH=False,
+        affine_qb=False,
         use_warm_starter=False,
         train_warm_starter=False,
         ws_loss_coef=1.,
@@ -26,11 +27,14 @@ class QPUnrolledNetwork(nn.Module):
         
         If shared_PH == True, P and H are parameters indepedent of input, and q and b are functions of input;
         Otherwise, (P, H, q, b) are all functions of input.
+
+        If affine_qb == True, then q and b are restricted to be affine functions of input.
         """
 
         super().__init__()
 
         self.shared_PH = shared_PH
+        self.affine_qb = affine_qb
         self.device = device
         self.input_size = input_size
         self.n_qp = n_qp
@@ -42,14 +46,26 @@ class QPUnrolledNetwork(nn.Module):
         self.n_H_param = m_qp * n_qp
         self.n_b_param = m_qp
 
-        if self.shared_PH:
-            self.n_mlp_output = self.n_q_param + self.n_b_param
+        self.n_mlp_output = 0
+        if not self.shared_PH:
+            self.n_mlp_output += (self.n_P_param + self.n_H_param)
+            self.P_params = None
+            self.H_params = None
+        else:
             self.P_params = nn.Parameter(torch.randn((self.n_P_param,), device=device)) 
             self.H_params = nn.Parameter(torch.randn((self.n_H_param,), device=device)) 
-        else:
-            self.n_mlp_output = self.n_P_param + self.n_q_param + self.n_H_param + self.n_b_param
 
-        self.mlp = mlp_builder(input_size, self.n_mlp_output)
+        if not self.affine_qb:
+            self.n_mlp_output += (self.n_q_param + self.n_b_param)
+            self.qb_affine_layer = None
+        else:
+            self.qb_affine_layer = nn.Linear(input_size, self.n_q_param + self.n_b_param)
+
+        if self.n_mlp_output > 0:
+            self.mlp = mlp_builder(input_size, self.n_mlp_output)
+        else:
+            self.mlp = None
+
         # TODO: add preconditioner
         self.warm_starter = WarmStarter(device, n_qp, m_qp, fixed_P=shared_PH, fixed_H=shared_PH) if use_warm_starter else None
         self.warm_starter_delayed = WarmStarter(device, n_qp, m_qp, fixed_P=shared_PH, fixed_H=shared_PH) if use_warm_starter else None
@@ -72,31 +88,34 @@ class QPUnrolledNetwork(nn.Module):
 
     def forward(self, x):
         bs = x.shape[0]
-        qp_params = self.mlp(x)
+        if self.mlp is not None:
+            qp_params = self.mlp(x)
 
+        # Decode MLP output
+        end = 0
         if not self.shared_PH:
-            start = 0
-            end = self.n_P_param
+            start = end
+            end = start + self.n_P_param
             P_params = qp_params[:, start:end]
+            start = end
+            end = start + self.n_H_param
+            H_params = qp_params[:, start:end]
+        else:
+            P_params = self.P_params.unsqueeze(0)
+            H_params = self.H_params.unsqueeze(0)
+
+        if not self.affine_qb:
             start = end
             end = start + self.n_q_param
             q = qp_params[:, start:end]
             start = end
-            end = start + self.n_H_param
-            H_params = qp_params[:, start:end]
-            start = end
             end = start + self.n_b_param
             b = qp_params[:, start:end]
         else:
-            start = 0
-            end = self.n_q_param
-            q = qp_params[:, start:end]
-            start = end
-            end = start + self.n_b_param
-            b = qp_params[:, start:end]
-            P_params = self.P_params.unsqueeze(0)
-            H_params = self.H_params.unsqueeze(0)
-        
+            q_b_params = self.qb_affine_layer(x)
+            q = q_b_params[:, :self.n_q_param]
+            b = q_b_params[:, self.n_q_param:]
+
         # Reshape P, H vectors into matrices
         Pinv = make_psd(P_params, min_eig=1e-2)
         H = H_params.view(-1, self.m_qp, self.n_qp)
