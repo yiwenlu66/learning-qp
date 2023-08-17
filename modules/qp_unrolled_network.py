@@ -107,7 +107,7 @@ class QPUnrolledNetwork(nn.Module):
             x[:, :self.mpc_baseline["n_mpc"]],
             x[:, self.mpc_baseline["n_mpc"]:],
         )
-        solver = QPSolver(x.device, n, m, P.squeeze(0), H.squeeze(0))
+        solver = QPSolver(x.device, n, m, P, H)
         Xs, primal_sols = solver(q, b, iters=100)
         return primal_sols[:, -1, :]
         # f = lambda t: t.squeeze(0).cpu().numpy()

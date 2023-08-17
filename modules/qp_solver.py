@@ -5,7 +5,7 @@ from torch.linalg import solve, inv, pinv
 import numpy as np
 
 from .preconditioner import Preconditioner
-from utils.utils import bmv, bma
+from utils.utils import bmv, bma, bsolve
 
 class QPSolver(nn.Module):
     """
@@ -77,7 +77,7 @@ class QPSolver(nn.Module):
             else:
                 bP_param = Pinv
                 P_is_inv = True
-        op = solve if not P_is_inv else bma
+        op = bsolve if not P_is_inv else bma
 
         bH = self.bH if self.bH is not None else H
         D, tD = self.preconditioner(q, b, bP_param, H, input_P_is_inversed=P_is_inv, output_tD_is_inversed=False)   # (bs, m, m) or (1, m, m)

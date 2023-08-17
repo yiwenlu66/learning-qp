@@ -52,6 +52,7 @@ parser.add_argument("--warm-start", action="store_true")
 parser.add_argument("--ws-loss-coef", type=float, default=10.)
 parser.add_argument("--ws-update-rate", type=float, default=0.1)
 parser.add_argument("--mpc-baseline-N", type=int, default=0)
+parser.add_argument("--batch-test", action="store_true")
 args = parser.parse_args()
 
 
@@ -59,7 +60,10 @@ def get_num_parallel():
     if args.train_or_test == "train":
         return args.num_parallel
     elif args.train_or_test == "test":
-        return 1
+        if args.batch_test:
+            return args.num_parallel
+        else:
+            return 1
 
 sys_param = {
     "tank": {
@@ -140,6 +144,9 @@ runner_config["params"]["network"]["mlp"]["units"] = [args.mlp_size_last * i for
 runner_config["params"]["config"]["save_frequency"] = args.save_freq
 runner_config["params"]["config"]["device"] = args.device
 runner_config["params"]["network"].pop("rnn")
+
+if args.batch_test:
+    runner_config["params"]["config"]["player"]["games_num"] = args.num_parallel
 
 if args.qp_unrolled:
     runner_config["params"]["network"]["name"] = "qp_unrolled"
