@@ -4,6 +4,7 @@ import numpy as np
 import random
 import gym
 from utils.utils import bmv, bqf
+from icecream import ic
 
 class LinearSystem():
     def __init__(self, A, B, Q, R, sqrt_W, x_min, x_max, u_min, u_max, bs, barrier_thresh, max_steps, device="cuda:0", random_seed=None, quiet=False, **kwargs):
@@ -37,13 +38,17 @@ class LinearSystem():
         self.x_ref = 0.5 * (self.x_max + self.x_min) * torch.ones((bs, self.n), device=device)
         self.is_done = torch.zeros((bs,), dtype=torch.uint8, device=device)
         self.step_count = torch.zeros((bs,), dtype=torch.long, device=device)
+        self.cum_cost = torch.zeros((bs,), dtype=torch.float, device=device)
         self.quiet = quiet
 
     def obs(self):
         return torch.cat([self.x, self.x_ref], -1)
 
+    def cost(self, x, u):
+        return bqf(x, self.Q) + bqf(u, self.R)
+
     def reward(self):
-        rew_main = -bqf(self.x, self.Q) - bqf(self.u, self.R)
+        rew_main = -self.cost(self.x, self.u)
         rew_state_bar = torch.sum(torch.log(((self.x_max - self.x) / self.barrier_thresh).clamp(1e-8, 1.)) + torch.log(((self.x - self.x_min) / self.barrier_thresh).clamp(1e-8, 1.)), dim=-1)
         rew_done = -1.0 * (self.is_done == 1)
         if not self.quiet:
@@ -63,6 +68,7 @@ class LinearSystem():
         is_done = self.is_done.bool() if need_reset is None else need_reset
         size = torch.sum(is_done)
         self.step_count[is_done] = 0
+        self.cum_cost[is_done] = 0
         self.x_ref[is_done, :] = self.x_min + self.barrier_thresh + (self.x_max - self.x_min - 2 * self.barrier_thresh) * torch.rand((size, self.n), device=self.device) if x_ref is None else x_ref
         self.x[is_done, :] = self.x_min + self.barrier_thresh + (self.x_max - self.x_min - 2 * self.barrier_thresh) * torch.rand((size, self.n), device=self.device) if x is None else x
         self.is_done[is_done] = 0
@@ -76,12 +82,15 @@ class LinearSystem():
 
     def step(self, u):
         self.reset_done_envs()
+        self.cum_cost += self.cost(self.x, u)
+        self.step_count += 1
         self.u = u
         self.x = bmv(self.A, self.x) + bmv(self.B, u) + bmv(self.sqrt_W, torch.randn((self.bs, self.n), device=self.device))
-        self.step_count += 1
         self.is_done[torch.logical_not(self.check_in_bound()).nonzero()] = 1   # 1 for failure
         self.is_done[self.step_count >= self.max_steps] = 2  # 2 for timeout
         return self.obs(), self.reward(), self.done(), self.info()
 
     def render(self, **kwargs):
-        print(self.x, self.x_ref, self.u)
+        ic(self.x, self.x_ref, self.u)
+        avg_cost = (self.cum_cost / self.step_count).cpu().numpy()
+        ic(avg_cost)

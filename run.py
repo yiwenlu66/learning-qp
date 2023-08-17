@@ -28,6 +28,7 @@ def suppress_stdout_stderr():
 parser = argparse.ArgumentParser()
 parser.add_argument("train_or_test", type=str, help="Train or test")
 parser.add_argument("env", type=str)
+parser.add_argument("--noise-level", type=float, default=0.5)
 parser.add_argument("--seed", type=int, default=42)
 parser.add_argument("--exp-name", type=str, default="default")
 parser.add_argument("--epochs", type=int, default=1000)
@@ -50,6 +51,7 @@ parser.add_argument("--affine-qb", action="store_true")
 parser.add_argument("--warm-start", action="store_true")
 parser.add_argument("--ws-loss-coef", type=float, default=10.)
 parser.add_argument("--ws-update-rate", type=float, default=0.1)
+parser.add_argument("--mpc-baseline-N", type=int, default=0)
 args = parser.parse_args()
 
 
@@ -59,27 +61,42 @@ def get_num_parallel():
     elif args.train_or_test == "test":
         return 1
 
-envs = {
-    "tank": lambda **kwargs: LinearSystem(
-        A=np.array([
+sys_param = {
+    "tank": {
+        "n": 4,
+        "m": 2,
+        "A": np.array([
             [0.984,  0.0,      0.0422029,  0.0],
             [0.0,    0.98895,  0.0,        0.0326014],
             [0.0,    0.0,      0.957453,   0.0],
             [0.0,    0.0,      0.0,        0.967216],
         ]),
-        B=np.array([
+        "B": np.array([
             [0.825822,    0.0101995],
             [0.00512673,  0.624648], 
             [0.0,         0.468317],
             [0.307042,    0.0],
         ]),
-        Q=np.eye(4),
-        R=0.1 * np.eye(2),
-        sqrt_W=0.5 * np.eye(4),
-        x_min=np.zeros(4),
-        x_max=20 * np.ones(4),
-        u_min=-np.ones(2),
-        u_max=8 * np.ones(2),
+        "Q": np.eye(4),
+        "R": 0.1 * np.eye(2),
+        "x_min": 0,
+        "x_max": 20,
+        "u_min": -1,
+        "u_max": 8,
+    }
+}
+
+envs = {
+    "tank": lambda **kwargs: LinearSystem(
+        A=sys_param["tank"]["A"],
+        B=sys_param["tank"]["B"],
+        Q=sys_param["tank"]["Q"],
+        R=sys_param["tank"]["R"],
+        sqrt_W=args.noise_level * np.eye(4),
+        x_min=sys_param["tank"]["x_min"] * np.ones(4),
+        x_max=sys_param["tank"]["x_max"] * np.ones(4),
+        u_min=sys_param["tank"]["u_min"] * np.ones(2),
+        u_max=sys_param["tank"]["u_max"] * np.ones(2),
         barrier_thresh=1.,
         max_steps=1000,
         **kwargs,
@@ -127,6 +144,7 @@ runner_config["params"]["network"].pop("rnn")
 if args.qp_unrolled:
     runner_config["params"]["network"]["name"] = "qp_unrolled"
     runner_config["params"]["network"]["custom"] = {
+        "device": args.device,
         "n_qp": args.n_qp,
         "m_qp": args.m_qp,
         "qp_iter": args.qp_iter,
@@ -136,8 +154,18 @@ if args.qp_unrolled:
         "train_warm_starter": args.warm_start and args.train_or_test == "train",
         "ws_loss_coef": args.ws_loss_coef,
         "ws_update_rate": args.ws_update_rate,
-        "device": args.device,
+        "mpc_baseline": None if not args.mpc_baseline_N else {
+            "n_mpc": sys_param[args.env]["n"],
+            "m_mpc": sys_param[args.env]["m"],
+            "N": args.mpc_baseline_N,
+            **sys_param[args.env]
+        } 
     }
+
+if args.mpc_baseline_N:
+    # Unset observation and action normalization
+    runner_config["params"]["config"]["clip_actions"] = False
+    runner_config["params"]["config"]["normalize_input"] = False
 
 if args.quiet:
     with suppress_stdout_stderr():
@@ -151,12 +179,15 @@ if __name__ == "__main__":
             'train': True,
         })
     elif args.train_or_test == "test":
-        checkpoint_dir = f"runs/{full_experiment_name}/nn"
-        if args.epoch_index == -1:
-            checkpoint_name = f"{checkpoint_dir}/{args.env}.pth"
+        if not args.mpc_baseline_N:
+            checkpoint_dir = f"runs/{full_experiment_name}/nn"
+            if args.epoch_index == -1:
+                checkpoint_name = f"{checkpoint_dir}/{args.env}.pth"
+            else:
+                list_of_files = glob.glob(f"{checkpoint_dir}/last_{args.env}_ep_{args.epoch_index}_rew_*.pth")
+                checkpoint_name = max(list_of_files, key=os.path.getctime)
         else:
-            list_of_files = glob.glob(f"{checkpoint_dir}/last_{args.env}_ep_{args.epoch_index}_rew_*.pth")
-            checkpoint_name = max(list_of_files, key=os.path.getctime)
+            checkpoint_name = None
         runner.run({
             'train': False,
             'play': True,

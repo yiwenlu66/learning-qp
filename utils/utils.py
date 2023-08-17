@@ -79,3 +79,45 @@ def interpolate_state_dicts(state_dict_1, state_dict_2, weight):
     return {
         key: (1 - weight) * state_dict_1[key] + weight * state_dict_2[key] for key in state_dict_1.keys()
     }
+
+def kron(a, b):
+    """
+    Kronecker product of matrices a and b with leading batch dimensions.
+    Batch dimensions are broadcast. The number of them mush
+    :type a: torch.Tensor
+    :type b: torch.Tensor
+    :rtype: torch.Tensor
+    """
+    siz1 = torch.Size(torch.tensor(a.shape[-2:]) * torch.tensor(b.shape[-2:]))
+    res = a.unsqueeze(-1).unsqueeze(-3) * b.unsqueeze(-2).unsqueeze(-4)
+    siz0 = res.shape[:-4]
+    return res.reshape(siz0 + siz1)
+
+
+def mpc2qp(n_mpc, m_mpc, N, A, B, Q, R, x_min, x_max, u_min, u_max, x0, x_ref):
+    bs = x0.shape[0]
+    device = x0.device
+
+    from icecream import ic; ic(x0, x_ref)
+    Ax0 = torch.cat([bmv((torch.linalg.matrix_power(A, k + 1)).unsqueeze(0), x0) for k in range(N)], 1)   # (bs, N * n_mpc)
+    m = 2 * (n_mpc + m_mpc) * N   # number of constraints
+    n = m_mpc * N                 # number of decision variables
+
+    b = torch.cat([
+        Ax0 - x_min,
+        x_max - Ax0,
+        -u_min * torch.ones((bs, n), device=device),
+        u_max * torch.ones((bs, n), device=device),
+    ], 1)
+
+    XU = torch.zeros((bs, N, n_mpc, N, m_mpc), device=device)
+    for k in range(N):
+        for j in range(k + 1):
+            XU[:, k, :, j, :] = (torch.linalg.matrix_power(A, k - j) @ B).unsqueeze(0)
+    XU = XU.flatten(1, 2).flatten(2, 3)   # (bs, N * n_MPC, N * m_MPC)
+    q = -2 * XU.transpose(1, 2) @ kron(torch.eye(N, device=device).unsqueeze(0), Q) @ (kron(torch.ones((bs, N, 1), device=device), x_ref.unsqueeze(-1)) - Ax0.unsqueeze(-1))   # (bs, N * m_MPC, 1)
+    q = q.squeeze(-1)  # (bs, N * m_MPC) = (bs, n)
+    P = 2 * XU.transpose(-1, -2) @ kron(torch.eye(N, device=device).unsqueeze(0), Q.unsqueeze(0)) @ XU + 2 * kron(torch.eye(N, device=device).unsqueeze(0), R.unsqueeze(0))
+    H = torch.cat([XU, -XU, torch.eye(n, device=device).unsqueeze(0).broadcast_to((bs, -1, -1)), torch.eye(n, device=device).unsqueeze(0).broadcast_to((bs, -1, -1))], 1)
+
+    return n, m, P, q, H, b

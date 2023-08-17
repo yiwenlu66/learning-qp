@@ -44,11 +44,12 @@ class QPSolver(nn.Module):
         self.X0 = torch.zeros((1, 2 * self.m), device=self.device)
         self.get_sol = self.get_sol_transform(self.bP, self.bH) if self.bP is not None and self.bH is not None else None
 
-    def get_sol_transform(self, bH, bP=None, bPinv=None):
+    def get_sol_transform(self, H, bP=None, bPinv=None):
         """Get the transform from z to x.
         
         Must specifying exactly one of bP or bPinv; specifying bPinv can reduce number of linear solves.
         """
+        bH = self.bH if self.bH is not None else H
         if self.m >= self.n:
             return lambda z, q, b: bmv(pinv(bH), z - b)
         else:
