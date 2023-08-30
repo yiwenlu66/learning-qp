@@ -1,7 +1,10 @@
 import torch
 from torch.nn import functional as F
 import numpy as np
+import scipy
 import qpsolvers
+import os
+from concurrent.futures import ProcessPoolExecutor
 
 def bmv(A, b):
     """Compute matrix multiply vector in batch mode."""
@@ -75,8 +78,15 @@ def generate_random_problem(bs, n, m, device):
     b = bmv(H, x0)
     return q, b, P, H
 
+def osqp_solve_qp_guarantee_return(
+    P, q, G=None, h=None, A=None, b=None, lb=None, ub=None, initvals=None, verbose=False, **kwargs,
+):
+    problem = qpsolvers.problem.Problem(P, q, G, h, A, b, lb, ub)
+    solution = qpsolvers.solvers.osqp_.osqp_solve_problem(problem, initvals, verbose, **kwargs)
+    return solution.x if solution.x.dtype == np.float64 else np.zeros(q.shape[0])
+
 def osqp_oracle(q, b, P, H):
-    return qpsolvers.solvers.osqp_.osqp_solve_qp(
+    return osqp_solve_qp_guarantee_return(
         P=P, q=q, G=-H, h=b,
         A=None, b=None, lb=None, ub=None,
         max_iter=30000, eps_abs=1e-10, eps_rel=1e-10,eps_prim_inf=1e-10, eps_dual_inf=1e-10, verbose=False
@@ -128,3 +138,26 @@ def mpc2qp(n_mpc, m_mpc, N, A, B, Q, R, x_min, x_max, u_min, u_max, x0, x_ref):
     H = torch.cat([XU, -XU, torch.eye(n, device=device), torch.eye(n, device=device)], 0)  # (m, n)
 
     return n, m, P, q, H, b
+
+def _getindex(arr, i):
+    if type(arr) == scipy.sparse.csc_matrix:
+        return arr
+    else:
+        return arr[i] if arr.shape[0] > 1 else arr[0]
+
+def _worker(i):
+    f = _worker.f
+    arrays = _worker.arrays
+    return f(*[_getindex(arr, i) for arr in arrays])
+
+def np_batch_op(f, *arrays):
+    get_bs = lambda arr: 1 if type(arr) == scipy.sparse.csc_matrix else arr.shape[0]
+    bs = max([get_bs(arr) for arr in arrays])
+    _worker.f = f
+    _worker.arrays = arrays
+    
+    with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
+        results = list(executor.map(_worker, range(bs)))
+        
+    ret = np.concatenate([np.expand_dims(arr, 0) for arr in results], 0)
+    return ret

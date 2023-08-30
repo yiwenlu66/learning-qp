@@ -115,6 +115,7 @@ class LinearSystem():
         self.reset_done_envs()
         self.cum_cost += self.cost(self.x, u)
         self.step_count += 1
+        u = u.clamp(self.u_min, self.u_max)
         self.u = u
         self.x = bmv(self.A, self.x) + bmv(self.B, u) + bmv(self.sqrt_W, torch.randn((self.bs, self.n), device=self.device))
         self.is_done[torch.logical_not(self.check_in_bound()).nonzero()] = 1   # 1 for failure

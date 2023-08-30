@@ -54,6 +54,7 @@ parser.add_argument("--ws-update-rate", type=float, default=0.1)
 parser.add_argument("--mpc-baseline-N", type=int, default=0)
 parser.add_argument("--batch-test", action="store_true")
 parser.add_argument("--run-name", type=str, default="")
+parser.add_argument("--use-osqp-for-mpc", action="store_true")
 args = parser.parse_args()
 
 
@@ -169,7 +170,8 @@ if args.qp_unrolled:
             "m_mpc": sys_param[args.env]["m"],
             "N": args.mpc_baseline_N,
             **sys_param[args.env]
-        } 
+        },
+        "use_osqp_for_mpc": args.use_osqp_for_mpc,
     }
 
 if args.mpc_baseline_N:

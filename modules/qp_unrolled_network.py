@@ -1,8 +1,10 @@
 import torch
 from torch import nn
+import numpy as np
+import scipy
 from modules.qp_solver import QPSolver
 from modules.warm_starter import WarmStarter
-from utils.utils import make_psd, interpolate_state_dicts, mpc2qp
+from utils.utils import make_psd, interpolate_state_dicts, mpc2qp, osqp_oracle, np_batch_op
 
 
 class QPUnrolledNetwork(nn.Module):
@@ -24,6 +26,7 @@ class QPUnrolledNetwork(nn.Module):
         ws_update_rate=0.01,
         ws_loss_shaper=lambda x: x ** (1 / 2),
         mpc_baseline=None,
+        use_osqp_for_mpc=False,
     ):
         """mlp_builder is a function mapping (input_size, output_size) to a nn.Sequential object.
         
@@ -83,6 +86,7 @@ class QPUnrolledNetwork(nn.Module):
         self.autonomous_losses = {}
 
         self.mpc_baseline = mpc_baseline
+        self.use_osqp_for_mpc = use_osqp_for_mpc
 
     def compute_warm_starter_loss(self, q, b, Pinv, H, solver_Xs):
         qd, bd, Pinvd, Hd = map(lambda t: t.detach() if t is not None else None, [q, b, Pinv, H])
@@ -90,7 +94,7 @@ class QPUnrolledNetwork(nn.Module):
         gt = solver_Xs[:, -1, :].detach()
         return self.ws_loss_coef * self.ws_loss_shaper(((gt - X0) ** 2).sum(dim=-1).mean())
 
-    def run_mpc_baseline(self, x):
+    def run_mpc_baseline(self, x, use_osqp_oracle=False):
         t = lambda a: torch.tensor(a, device=x.device, dtype=torch.float)
         n, m, P, q, H, b = mpc2qp(
             self.mpc_baseline["n_mpc"],
@@ -107,16 +111,19 @@ class QPUnrolledNetwork(nn.Module):
             x[:, :self.mpc_baseline["n_mpc"]],
             x[:, self.mpc_baseline["n_mpc"]:],
         )
-        solver = QPSolver(x.device, n, m, P, H)
-        Xs, primal_sols = solver(q, b, iters=100)
-        return primal_sols[:, -1, :]
-        # f = lambda t: t.squeeze(0).cpu().numpy()
-        # t = lambda a: torch.tensor(a, dtype=torch.float, device=self.device).unsqueeze(0)
-        # return t(osqp_oracle(f(q), f(b), f(P), f(H)))
+        if not use_osqp_oracle:
+            solver = QPSolver(x.device, n, m, P, H)
+            Xs, primal_sols = solver(q, b, iters=100)
+            return primal_sols[:, -1, :]
+        else:
+            f = lambda t: t.cpu().numpy()
+            f_sparse = lambda t: scipy.sparse.csc_matrix(t.cpu().numpy())
+            t = lambda a: torch.tensor(a, dtype=torch.float, device=self.device)
+            return t(np_batch_op(osqp_oracle, f(q), f(b), f_sparse(P), f_sparse(H)))
 
     def forward(self, x):
         if self.mpc_baseline is not None:
-            return self.run_mpc_baseline(x)
+            return self.run_mpc_baseline(x, use_osqp_oracle=self.use_osqp_for_mpc)
 
         bs = x.shape[0]
         if self.mlp is not None:
