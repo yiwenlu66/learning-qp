@@ -47,6 +47,7 @@ class LinearSystem():
         self.cum_cost = torch.zeros((bs,), dtype=torch.float, device=device)
         self.run_name = run_name
         self.keep_stats = keep_stats
+        self.already_on_stats = torch.zeros((bs,), dtype=torch.uint8, device=device)   # Each worker can only contribute once to the statistics, to avoid bias towards shorter episodes
         self.stats = pd.DataFrame(columns=['episode_length', 'cumulative_cost', 'constraint_violated'])
         self.quiet = quiet
 
@@ -73,6 +74,9 @@ class LinearSystem():
     def get_number_of_agents(self):
         return 1
 
+    def get_num_parallel(self):
+        return self.bs
+
     def reset_done_envs(self, need_reset=None, x=None, x_ref=None):
         is_done = self.is_done.bool() if need_reset is None else need_reset
         size = torch.sum(is_done)
@@ -91,6 +95,7 @@ class LinearSystem():
 
     def write_episode_stats(self, i):
         """Write the stats of an episode to self.stats; call with the index in the batch when an episode is done."""
+        self.already_on_stats[i] = 1
         episode_length = self.step_count[i].item()
         cumulative_cost = self.cum_cost[i].item()
         constraint_violated = (self.is_done[i] == 1).item()
@@ -115,7 +120,7 @@ class LinearSystem():
         self.is_done[torch.logical_not(self.check_in_bound()).nonzero()] = 1   # 1 for failure
         self.is_done[self.step_count >= self.max_steps] = 2  # 2 for timeout
         if self.keep_stats:
-            done_indices = torch.nonzero(self.is_done, as_tuple=False)
+            done_indices = torch.nonzero(self.is_done.to(dtype=torch.bool) & torch.logical_not(self.already_on_stats), as_tuple=False)
             for i in done_indices:
                 self.write_episode_stats(i)
         return self.obs(), self.reward(), self.done(), self.info()

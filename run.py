@@ -103,7 +103,7 @@ envs = {
         u_min=sys_param["tank"]["u_min"] * np.ones(2),
         u_max=sys_param["tank"]["u_max"] * np.ones(2),
         barrier_thresh=1.,
-        max_steps=1000,
+        max_steps=1000 if args.train_or_test == "train" else 10000,
         keep_stats=(args.train_or_test == "test"),
         run_name=args.run_name or args.exp_name,
         **kwargs,
