@@ -53,6 +53,7 @@ parser.add_argument("--ws-loss-coef", type=float, default=10.)
 parser.add_argument("--ws-update-rate", type=float, default=0.1)
 parser.add_argument("--mpc-baseline-N", type=int, default=0)
 parser.add_argument("--batch-test", action="store_true")
+parser.add_argument("--run-name", type=str, default="")
 args = parser.parse_args()
 
 
@@ -103,6 +104,8 @@ envs = {
         u_max=sys_param["tank"]["u_max"] * np.ones(2),
         barrier_thresh=1.,
         max_steps=1000,
+        keep_stats=(args.train_or_test == "test"),
+        run_name=args.run_name or args.exp_name,
         **kwargs,
     ),
 }

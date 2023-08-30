@@ -78,5 +78,7 @@ params:
     print_stats: True
 
     player:
-      render: True
+      render: False
+      render_sleep: 0.
+      dump_stats: True
       games_num: 1

@@ -3,11 +3,17 @@ import torch.nn as nn
 import numpy as np
 import random
 import gym
+import pandas as pd
+import os
+from datetime import datetime
 from utils.utils import bmv, bqf
 from icecream import ic
 
 class LinearSystem():
-    def __init__(self, A, B, Q, R, sqrt_W, x_min, x_max, u_min, u_max, bs, barrier_thresh, max_steps, device="cuda:0", random_seed=None, quiet=False, **kwargs):
+    def __init__(self, A, B, Q, R, sqrt_W, x_min, x_max, u_min, u_max, bs, barrier_thresh, max_steps, device="cuda:0", random_seed=None, quiet=False, keep_stats=False, run_name="", **kwargs):
+        """
+        When keep_stats == True, statistics of previous episodes will be kept.
+        """
         if random_seed is not None:
             torch.manual_seed(random_seed)
             torch.cuda.manual_seed_all(random_seed)
@@ -39,6 +45,9 @@ class LinearSystem():
         self.is_done = torch.zeros((bs,), dtype=torch.uint8, device=device)
         self.step_count = torch.zeros((bs,), dtype=torch.long, device=device)
         self.cum_cost = torch.zeros((bs,), dtype=torch.float, device=device)
+        self.run_name = run_name
+        self.keep_stats = keep_stats
+        self.stats = pd.DataFrame(columns=['episode_length', 'cumulative_cost', 'constraint_violated'])
         self.quiet = quiet
 
     def obs(self):
@@ -62,7 +71,7 @@ class LinearSystem():
         return {}
 
     def get_number_of_agents(self):
-        return self.n
+        return 1
 
     def reset_done_envs(self, need_reset=None, x=None, x_ref=None):
         is_done = self.is_done.bool() if need_reset is None else need_reset
@@ -80,6 +89,23 @@ class LinearSystem():
     def check_in_bound(self):
         return ((self.x_min <= self.x) & (self.x <= self.x_max)).all(dim=-1)
 
+    def write_episode_stats(self, i):
+        """Write the stats of an episode to self.stats; call with the index in the batch when an episode is done."""
+        episode_length = self.step_count[i].item()
+        cumulative_cost = self.cum_cost[i].item()
+        constraint_violated = (self.is_done[i] == 1).item()
+        self.stats.loc[len(self.stats)] = [episode_length, cumulative_cost, constraint_violated]
+
+    def dump_stats(self, filename=None):
+        if filename is None:
+            directory = 'test_results'
+            if not os.path.exists(directory):
+                os.makedirs(directory)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            tag = self.run_name
+            filename = os.path.join(directory, f"{tag}_{timestamp}.csv")
+        self.stats.to_csv(filename, index=False)
+
     def step(self, u):
         self.reset_done_envs()
         self.cum_cost += self.cost(self.x, u)
@@ -88,6 +114,10 @@ class LinearSystem():
         self.x = bmv(self.A, self.x) + bmv(self.B, u) + bmv(self.sqrt_W, torch.randn((self.bs, self.n), device=self.device))
         self.is_done[torch.logical_not(self.check_in_bound()).nonzero()] = 1   # 1 for failure
         self.is_done[self.step_count >= self.max_steps] = 2  # 2 for timeout
+        if self.keep_stats:
+            done_indices = torch.nonzero(self.is_done, as_tuple=False)
+            for i in done_indices:
+                self.write_episode_stats(i)
         return self.obs(), self.reward(), self.done(), self.info()
 
     def render(self, **kwargs):

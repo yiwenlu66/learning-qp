@@ -164,4 +164,4 @@ data/
 auxiliary/models
 auxiliary/*.csv
 experiments/tank/run1.sh
-
+experiments/tank/test_results/
