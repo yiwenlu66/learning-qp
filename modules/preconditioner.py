@@ -21,8 +21,9 @@ class Preconditioner(nn.Module):
         self.device = device
         self.n = n
         self.m = m
-        self.P = torch.tensor(P, dtype=torch.float, device=device) if P is not None else None       # (1, n, n)
-        self.H = torch.tensor(H, dtype=torch.float, device=device) if H is not None else None       # (1, m, n)
+        create_tensor = lambda t: torch.tensor(t, dtype=torch.float, device=device) if type(t) != torch.Tensor and t is not None else t
+        self.P = create_tensor(P)       # (1, n, n)
+        self.H = create_tensor(H)       # (1, m, n)
         self.dummy = dummy
         self.beta = beta
         self.adaptive = adaptive

@@ -28,8 +28,9 @@ class QPSolver(nn.Module):
         self.device = device
         self.n = n
         self.m = m
-        self.bP = torch.tensor(P, dtype=torch.float, device=device).unsqueeze(0) if P is not None else None       # (1, n, n)
-        self.bH = torch.tensor(H, dtype=torch.float, device=device).unsqueeze(0) if H is not None else None       # (1, m, n)
+        create_tensor = lambda t: (torch.tensor(t, dtype=torch.float, device=device).unsqueeze(0) if t is not None else None) if type(t) != torch.Tensor else t.unsqueeze(0)
+        self.bP = create_tensor(P)       # (1, n, n)
+        self.bH = create_tensor(H)       # (1, m, n)
         self.alpha = alpha
         self.beta = beta
         if preconditioner is None:
