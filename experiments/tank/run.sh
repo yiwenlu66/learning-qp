@@ -13,30 +13,39 @@ group_one() {
 
 # Function to run commands 4-6 sequentially with VAR=2
 group_two() {
-    export CUDA_VISIBLE_DEVICES=0
+    export CUDA_VISIBLE_DEVICES=1
     # python ../../run.py $TRAIN_OR_TEST tank --num-parallel 100000 --horizon 20 --epochs 2000 --mini-epochs 1 --qp-unrolled --shared-PH --exp-name qp_unrolled_shared
     # python ../../run.py $TRAIN_OR_TEST tank --num-parallel 100000 --horizon 20 --epochs 2000 --mini-epochs 1 --qp-unrolled --exp-name qp_unrolled
     # python ../../run.py $TRAIN_OR_TEST tank --num-parallel 100000 --horizon 20 --epochs 2000 --mini-epochs 1 --qp-unrolled --warm-start --exp-name qp_unrolled_ws
     # python ../../run.py $TRAIN_OR_TEST tank --num-parallel 100000 --horizon 20 --epochs 2000 --mini-epochs 1 --qp-unrolled --shared-PH --exp-name qp_unrolled_shared
     # python ../../run.py $TRAIN_OR_TEST tank --num-parallel 100000 --horizon 20 --epochs 2000 --mini-epochs 1 --qp-unrolled --shared-PH --qp-iter 10 --warm-start --exp-name qp_unrolled_shared_ws
     # python ../../run.py $TRAIN_OR_TEST tank --num-parallel 100000 --horizon 20 --epochs 1 --mini-epochs 1 --qp-unrolled --shared-PH --exp-name computation-test
-    for n_qp in 2 4 8; do
-        for m_qp in 32 64; do
-            for noise_level in 0 0.2 0.5; do
-            python ../../run.py $TRAIN_OR_TEST tank \
-            --num-parallel 100000 \
-            --horizon 20 \
-            --epochs 2000 \
-            --mini-epochs 1 \
-            --qp-unrolled \
-            --shared-PH \
-            --affine-qb \
-            --noise-level ${noise_level} \
-            --n-qp ${n_qp} \
-            --m-qp ${m_qp} \
-            --exp-name shared_affine_noise${noise_level}_n${n_qp}_m${m_qp}
-            done
-        done
+    # for n_qp in 2 4 8; do
+    #     for m_qp in 32 64; do
+    #         for noise_level in 0 0.2 0.5; do
+    #         python ../../run.py $TRAIN_OR_TEST tank \
+    #         --num-parallel 100000 \
+    #         --horizon 20 \
+    #         --epochs 2000 \
+    #         --mini-epochs 1 \
+    #         --qp-unrolled \
+    #         --shared-PH \
+    #         --affine-qb \
+    #         --noise-level ${noise_level} \
+    #         --n-qp ${n_qp} \
+    #         --m-qp ${m_qp} \
+    #         --exp-name shared_affine_noise${noise_level}_n${n_qp}_m${m_qp}
+    #         done
+    #     done
+    # done
+    for noise_level in 0.1; do
+        python ../../run.py $TRAIN_OR_TEST tank \
+        --num-parallel 100000 \
+        --horizon 20 \
+        --epochs 2000 \
+        --mini-epochs 1 \
+        --noise-level ${noise_level} \
+        --exp-name mlp_noise${noise_level}
     done
 }
 
