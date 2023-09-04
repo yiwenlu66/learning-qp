@@ -58,11 +58,12 @@ class LinearSystem():
         return bqf(x, self.Q) + bqf(u, self.R)
 
     def reward(self):
-        rew_main = -self.cost(self.x, self.u)
+        rew_main = -self.cost(self.x - self.x_ref, self.u)
         rew_state_bar = torch.sum(torch.log(((self.x_max - self.x) / self.barrier_thresh).clamp(1e-8, 1.)) + torch.log(((self.x - self.x_min) / self.barrier_thresh).clamp(1e-8, 1.)), dim=-1)
         rew_done = -1.0 * (self.is_done == 1)
         if not self.quiet:
-            print(rew_main.mean().item(), rew_state_bar.mean().item(), rew_done.mean().item())
+            avg_rew_main, avg_rew_state_bar, avg_rew_done = rew_main.mean().item(), rew_state_bar.mean().item(), rew_done.mean().item()
+            ic(avg_rew_main, avg_rew_state_bar, avg_rew_done)
         return 10 + 0.01 * rew_main + 10 * rew_state_bar + 10 * rew_done
 
     def done(self):
@@ -87,7 +88,7 @@ class LinearSystem():
         self.is_done[is_done] = 0
 
     def reset(self, x=None, x_ref=None):
-        self.reset_done_envs(torch.ones(self.bs, dtype=torch.bool, device=self.device))
+        self.reset_done_envs(torch.ones(self.bs, dtype=torch.bool, device=self.device), x, x_ref)
         return self.obs()
 
     def check_in_bound(self):
@@ -113,7 +114,7 @@ class LinearSystem():
 
     def step(self, u):
         self.reset_done_envs()
-        self.cum_cost += self.cost(self.x, u)
+        self.cum_cost += self.cost(self.x - self.x_ref, u)
         self.step_count += 1
         u = u.clamp(self.u_min, self.u_max)
         self.u = u

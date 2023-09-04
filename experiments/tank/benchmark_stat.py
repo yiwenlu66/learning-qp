@@ -64,7 +64,7 @@ for noise_level in [0, 0.1, 0.2, 0.5]:
             "MPC",
             N,
             2 * N,
-            4 * N,
+            12 * N,
             0,
             *get_stat(mpc_df),
         ]
