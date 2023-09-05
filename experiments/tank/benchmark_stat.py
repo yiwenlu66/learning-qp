@@ -10,6 +10,7 @@ df = pd.DataFrame(columns=[
     "Num of constraints",
     "Num of learnable policy parameters",
     "Average cost",
+    "Average cost (with penalty)",
     "Frequency of constraint violation (x1000)",
 ])
 
@@ -18,9 +19,12 @@ def read_csv(wildcard):
     return pd.read_csv(filename, dtype={"constraint_violated": "bool"})
 
 def get_stat(df):
+    max_episode_length = df['episode_length'].max()
+    penalty = 10000
     avg_cost = df['cumulative_cost'].sum() / df['episode_length'].sum()
+    avg_cost_penalized = (df['cumulative_cost'].sum() + penalty * df["constraint_violated"].sum()) / df['episode_length'].sum()
     freq_violation = df["constraint_violated"].sum() / df['episode_length'].sum()
-    return avg_cost, freq_violation * 1000
+    return avg_cost, avg_cost_penalized, freq_violation * 1000
 
 def count_parameters(exp_name):
     checkpoint_path = f"runs/tank_{exp_name}/nn/tank.pth"
