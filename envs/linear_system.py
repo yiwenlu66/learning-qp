@@ -61,10 +61,18 @@ class LinearSystem():
         rew_main = -self.cost(self.x - self.x_ref, self.u)
         rew_state_bar = torch.sum(torch.log(((self.x_max - self.x) / self.barrier_thresh).clamp(1e-8, 1.)) + torch.log(((self.x - self.x_min) / self.barrier_thresh).clamp(1e-8, 1.)), dim=-1)
         rew_done = -1.0 * (self.is_done == 1)
+
+        coef_const = 0.
+        coef_main = 1.
+        coef_bar = 0.
+        coef_done = 100000.
+
+        rew_total = coef_const + coef_main * rew_main + coef_bar * rew_state_bar + coef_done * rew_done
+
         if not self.quiet:
-            avg_rew_main, avg_rew_state_bar, avg_rew_done = rew_main.mean().item(), rew_state_bar.mean().item(), rew_done.mean().item()
-            ic(avg_rew_main, avg_rew_state_bar, avg_rew_done)
-        return 10 + 0.01 * rew_main + 10 * rew_state_bar + 10 * rew_done
+            avg_rew_main, avg_rew_state_bar, avg_rew_done, avg_rew_total = coef_main * rew_main.mean().item(), coef_bar * rew_state_bar.mean().item(), coef_done * rew_done.mean().item(), rew_total.mean().item()
+            ic(avg_rew_main, avg_rew_done, avg_rew_total)
+        return rew_total
 
     def done(self):
         return self.is_done.bool()

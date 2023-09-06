@@ -20,7 +20,7 @@ def read_csv(wildcard):
 
 def get_stat(df):
     max_episode_length = df['episode_length'].max()
-    penalty = 10000
+    penalty = 100000
     avg_cost = df['cumulative_cost'].sum() / df['episode_length'].sum()
     avg_cost_penalized = (df['cumulative_cost'].sum() + penalty * df["constraint_violated"].sum()) / df['episode_length'].sum()
     freq_violation = df["constraint_violated"].sum() / df['episode_length'].sum()

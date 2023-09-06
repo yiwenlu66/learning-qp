@@ -37,7 +37,8 @@ parser.add_argument("--mini-epochs", type=int, default=5)
 parser.add_argument("--mlp-size-last", type=int, default=64)
 parser.add_argument("--gamma", type=float, default=0.99)
 parser.add_argument("--horizon", type=int, default=200)
-parser.add_argument("--score-to-win", type=int, default=20000)
+parser.add_argument("--max-steps-per-episode", type=int, default=1000)
+parser.add_argument("--score-to-win", type=int, default=int(1e9))
 parser.add_argument("--save-freq", type=int, default=10)
 parser.add_argument("--epoch-index", type=int, default=-1, help="For test only, -1 for using latest")
 parser.add_argument("--quiet", action='store_true')
@@ -104,7 +105,7 @@ envs = {
         u_min=sys_param["tank"]["u_min"] * np.ones(2),
         u_max=sys_param["tank"]["u_max"] * np.ones(2),
         barrier_thresh=1.,
-        max_steps=1000,
+        max_steps=args.max_steps_per_episode,
         keep_stats=(args.train_or_test == "test"),
         run_name=args.run_name or args.exp_name,
         **kwargs,
@@ -138,6 +139,7 @@ runner_config["params"]["config"]["num_actors"] = args.num_parallel
 runner_config["params"]["config"]["max_epochs"] = args.epochs
 runner_config["params"]["config"]["minibatch_size"] = args.num_parallel
 runner_config["params"]["config"]["games_to_track"] = args.num_parallel
+runner_config["params"]["config"]["steps_to_track_per_game"] = args.max_steps_per_episode
 runner_config["params"]["config"]["mini_epochs"] = args.mini_epochs
 runner_config["params"]["config"]["gamma"] = args.gamma
 runner_config["params"]["config"]["horizon_length"] = args.horizon
