@@ -114,55 +114,68 @@ class QPUnrolledNetwork(nn.Module):
         if not use_osqp_oracle:
             solver = QPSolver(x.device, n, m, P, H)
             Xs, primal_sols = solver(q, b, iters=100)
-            return primal_sols[:, -1, :]
+            sol = primal_sols[:, -1, :]
         else:
             f = lambda t: t.cpu().numpy()
             f_sparse = lambda t: scipy.sparse.csc_matrix(t.cpu().numpy())
             t = lambda a: torch.tensor(a, dtype=torch.float, device=self.device)
-            return t(np_batch_op(osqp_oracle, f(q), f(b), f_sparse(P), f_sparse(H)))
+            if q.shape[0] > 1:
+                sol = t(np_batch_op(osqp_oracle, f(q), f(b), f_sparse(P), f_sparse(H)))
+            else:
+                sol = t(osqp_oracle(f(q[0, :]), f(b[0, :]), f_sparse(P), f_sparse(H))).unsqueeze(0)
+        return sol, (P, q, H, b)
 
-    def forward(self, x):
+    def forward(self, x, return_problem_params=False):
         if self.mpc_baseline is not None:
-            return self.run_mpc_baseline(x, use_osqp_oracle=self.use_osqp_for_mpc)
-
-        bs = x.shape[0]
-        if self.mlp is not None:
-            qp_params = self.mlp(x)
-
-        # Decode MLP output
-        end = 0
-        if not self.shared_PH:
-            start = end
-            end = start + self.n_P_param
-            P_params = qp_params[:, start:end]
-            start = end
-            end = start + self.n_H_param
-            H_params = qp_params[:, start:end]
+            sol, problem_params = self.run_mpc_baseline(x, use_osqp_oracle=self.use_osqp_for_mpc)
         else:
-            P_params = self.P_params.unsqueeze(0)
-            H_params = self.H_params.unsqueeze(0)
+            bs = x.shape[0]
+            if self.mlp is not None:
+                qp_params = self.mlp(x)
 
-        if not self.affine_qb:
-            start = end
-            end = start + self.n_q_param
-            q = qp_params[:, start:end]
-            start = end
-            end = start + self.n_b_param
-            b = qp_params[:, start:end]
+            # Decode MLP output
+            end = 0
+            if not self.shared_PH:
+                start = end
+                end = start + self.n_P_param
+                P_params = qp_params[:, start:end]
+                start = end
+                end = start + self.n_H_param
+                H_params = qp_params[:, start:end]
+            else:
+                P_params = self.P_params.unsqueeze(0)
+                H_params = self.H_params.unsqueeze(0)
+
+            if not self.affine_qb:
+                start = end
+                end = start + self.n_q_param
+                q = qp_params[:, start:end]
+                start = end
+                end = start + self.n_b_param
+                b = qp_params[:, start:end]
+            else:
+                q_b_params = self.qb_affine_layer(x)
+                q = q_b_params[:, :self.n_q_param]
+                b = q_b_params[:, self.n_q_param:]
+
+            # Reshape P, H vectors into matrices
+            Pinv = make_psd(P_params, min_eig=1e-2)
+            H = H_params.view(-1, self.m_qp, self.n_qp)
+
+            # Update parameters of warm starter with a delay to stabilize training
+            if self.train_warm_starter:
+                self.warm_starter_delayed.load_state_dict(interpolate_state_dicts(self.warm_starter_delayed.state_dict(), self.warm_starter.state_dict(), self.ws_update_rate))
+
+            Xs, primal_sols = self.solver(q, b, Pinv=Pinv, H=H, iters=self.qp_iter)
+            if self.train_warm_starter:
+                self.autonomous_losses["warm_starter"] = self.compute_warm_starter_loss(q, b, Pinv, H, Xs)
+            sol = primal_sols[:, -1, :]
+            if return_problem_params:
+                problem_params = (torch.linalg.inv(Pinv), q, H, b)
+
+        if not return_problem_params:
+            # Only return the solution
+            return sol
         else:
-            q_b_params = self.qb_affine_layer(x)
-            q = q_b_params[:, :self.n_q_param]
-            b = q_b_params[:, self.n_q_param:]
-
-        # Reshape P, H vectors into matrices
-        Pinv = make_psd(P_params, min_eig=1e-2)
-        H = H_params.view(-1, self.m_qp, self.n_qp)
-
-        # Update parameters of warm starter with a delay to stabilize training
-        if self.train_warm_starter:
-            self.warm_starter_delayed.load_state_dict(interpolate_state_dicts(self.warm_starter_delayed.state_dict(), self.warm_starter.state_dict(), self.ws_update_rate))
-
-        Xs, primal_sols = self.solver(q, b, Pinv=Pinv, H=H, iters=self.qp_iter)
-        if self.train_warm_starter:
-            self.autonomous_losses["warm_starter"] = self.compute_warm_starter_loss(q, b, Pinv, H, Xs)
-        return primal_sols[:, -1, :]
+            # Return the solution as well as (P, q, H, b)
+            return sol, problem_params

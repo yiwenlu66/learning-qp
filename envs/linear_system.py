@@ -6,11 +6,11 @@ import gym
 import pandas as pd
 import os
 from datetime import datetime
-from utils.utils import bmv, bqf
+from utils.utils import bmv, bqf, bsolve
 from icecream import ic
 
 class LinearSystem():
-    def __init__(self, A, B, Q, R, sqrt_W, x_min, x_max, u_min, u_max, bs, barrier_thresh, max_steps, device="cuda:0", random_seed=None, quiet=False, keep_stats=False, run_name="", **kwargs):
+    def __init__(self, A, B, Q, R, sqrt_W, x_min, x_max, u_min, u_max, bs, barrier_thresh, max_steps, u_eq_min=None, u_eq_max=None, device="cuda:0", random_seed=None, quiet=False, keep_stats=False, run_name="", **kwargs):
         """
         When keep_stats == True, statistics of previous episodes will be kept.
         """
@@ -22,15 +22,18 @@ class LinearSystem():
         self.device = device
         self.n = A.shape[0]
         self.m = B.shape[1]
-        self.A = torch.tensor(A, dtype=torch.float, device=device).unsqueeze(0)
-        self.B = torch.tensor(B, dtype=torch.float, device=device).unsqueeze(0)
-        self.Q = torch.tensor(Q, dtype=torch.float, device=device).unsqueeze(0)
-        self.R = torch.tensor(R, dtype=torch.float, device=device).unsqueeze(0)
-        self.sqrt_W = torch.tensor(sqrt_W, dtype=torch.float, device=device).unsqueeze(0)
-        self.x_min = torch.tensor(x_min, dtype=torch.float, device=device).unsqueeze(0)
-        self.x_max = torch.tensor(x_max, dtype=torch.float, device=device).unsqueeze(0)
-        self.u_min = torch.tensor(u_min, dtype=torch.float, device=device).unsqueeze(0)
-        self.u_max = torch.tensor(u_max, dtype=torch.float, device=device).unsqueeze(0)
+        t = lambda a: torch.tensor(a, dtype=torch.float, device=device).unsqueeze(0)
+        self.A = t(A)
+        self.B = t(B)
+        self.Q = t(Q)
+        self.R = t(R)
+        self.sqrt_W = t(sqrt_W)
+        self.x_min = t(x_min)
+        self.x_max = t(x_max)
+        self.u_min = t(u_min)
+        self.u_max = t(u_max)
+        self.u_eq_min = t(u_eq_min) if u_eq_min is not None else self.u_min
+        self.u_eq_max = t(u_eq_max) if u_eq_max is not None else self.u_max
         self.bs = bs
         self.barrier_thresh = barrier_thresh
         self.max_steps = max_steps
@@ -40,6 +43,7 @@ class LinearSystem():
         self.action_space = gym.spaces.Box(low=u_min, high=u_max, shape=(self.m,))
         self.state_space = self.observation_space
         self.x = 0.5 * (self.x_max + self.x_min) * torch.ones((bs, self.n), device=device)
+        self.x0 = 0.5 * (self.x_max + self.x_min) * torch.ones((bs, self.n), device=device)
         self.u = torch.zeros((bs, self.m), device=device)
         self.x_ref = 0.5 * (self.x_max + self.x_min) * torch.ones((bs, self.n), device=device)
         self.is_done = torch.zeros((bs,), dtype=torch.uint8, device=device)
@@ -48,7 +52,7 @@ class LinearSystem():
         self.run_name = run_name
         self.keep_stats = keep_stats
         self.already_on_stats = torch.zeros((bs,), dtype=torch.uint8, device=device)   # Each worker can only contribute once to the statistics, to avoid bias towards shorter episodes
-        self.stats = pd.DataFrame(columns=['episode_length', 'cumulative_cost', 'constraint_violated'])
+        self.stats = pd.DataFrame(columns=['x0', 'x_ref', 'episode_length', 'cumulative_cost', 'constraint_violated'])
         self.quiet = quiet
 
     def obs(self):
@@ -86,13 +90,21 @@ class LinearSystem():
     def get_num_parallel(self):
         return self.bs
 
+    def generate_ref(self, size):
+        u_ref = self.u_eq_min + (self.u_eq_max - self.u_eq_min) * torch.rand((size, self.m), device=self.device)
+        x_ref = bsolve(torch.eye(self.n, device=self.device).unsqueeze(0) - self.A, bmv(self.B, u_ref))
+        x_ref += self.barrier_thresh * torch.randn((size, self.n), device=self.device)
+        x_ref = x_ref.clamp(self.x_min + self.barrier_thresh, self.x_max - self.barrier_thresh)
+        return x_ref
+
     def reset_done_envs(self, need_reset=None, x=None, x_ref=None):
         is_done = self.is_done.bool() if need_reset is None else need_reset
         size = torch.sum(is_done)
         self.step_count[is_done] = 0
         self.cum_cost[is_done] = 0
-        self.x_ref[is_done, :] = self.x_min + self.barrier_thresh + (self.x_max - self.x_min - 2 * self.barrier_thresh) * torch.rand((size, self.n), device=self.device) if x_ref is None else x_ref
-        self.x[is_done, :] = self.x_min + self.barrier_thresh + (self.x_max - self.x_min - 2 * self.barrier_thresh) * torch.rand((size, self.n), device=self.device) if x is None else x
+        self.x_ref[is_done, :] = self.generate_ref(size) if x_ref is None else x_ref
+        self.x0[is_done, :] = self.x_min + self.barrier_thresh + (self.x_max - self.x_min - 2 * self.barrier_thresh) * torch.rand((size, self.n), device=self.device) if x is None else x
+        self.x[is_done, :] = self.x0[is_done, :]
         self.is_done[is_done] = 0
 
     def reset(self, x=None, x_ref=None):
@@ -105,10 +117,12 @@ class LinearSystem():
     def write_episode_stats(self, i):
         """Write the stats of an episode to self.stats; call with the index in the batch when an episode is done."""
         self.already_on_stats[i] = 1
+        x0 = self.x0[i, :].cpu().numpy()
+        x_ref = self.x_ref[i, :].cpu().numpy()
         episode_length = self.step_count[i].item()
         cumulative_cost = self.cum_cost[i].item()
         constraint_violated = (self.is_done[i] == 1).item()
-        self.stats.loc[len(self.stats)] = [episode_length, cumulative_cost, constraint_violated]
+        self.stats.loc[len(self.stats)] = [x0, x_ref, episode_length, cumulative_cost, constraint_violated]
 
     def dump_stats(self, filename=None):
         if filename is None:

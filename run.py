@@ -3,18 +3,20 @@ import os
 import sys
 file_path = os.path.dirname(__file__)
 sys.path.append(os.path.join(file_path, "rl_games"))
-from rl_games.common import env_configurations, vecenv
-from rl_games.torch_runner import Runner
-from utils.rlgame_utils import RLGPUEnv, RLGPUAlgoObserver
-from envs.linear_system import LinearSystem
 import yaml
 import torch
 import glob
 import copy
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 import numpy as np
-from networks.a2c_qp_unrolled import A2CQPUnrolledBuilder
+
+from rl_games.common import env_configurations, vecenv
+from rl_games.torch_runner import Runner
 from rl_games.algos_torch import model_builder
+
+from envs.env_creators import env_creators, sys_param
+from utils.rlgame_utils import RLGPUEnv, RLGPUAlgoObserver
+from networks.a2c_qp_unrolled import A2CQPUnrolledBuilder
 
 model_builder.register_network('qp_unrolled', A2CQPUnrolledBuilder)
 
@@ -35,9 +37,9 @@ parser.add_argument("--epochs", type=int, default=1000)
 parser.add_argument("--num-parallel", type=int, default=100000)
 parser.add_argument("--mini-epochs", type=int, default=5)
 parser.add_argument("--mlp-size-last", type=int, default=64)
-parser.add_argument("--gamma", type=float, default=0.99)
+parser.add_argument("--gamma", type=float, default=0.999)
 parser.add_argument("--horizon", type=int, default=200)
-parser.add_argument("--max-steps-per-episode", type=int, default=1000)
+parser.add_argument("--max-steps-per-episode", type=int, default=500)
 parser.add_argument("--score-to-win", type=int, default=int(1e9))
 parser.add_argument("--save-freq", type=int, default=10)
 parser.add_argument("--epoch-index", type=int, default=-1, help="For test only, -1 for using latest")
@@ -68,62 +70,24 @@ def get_num_parallel():
         else:
             return 1
 
-sys_param = {
-    "tank": {
-        "n": 4,
-        "m": 2,
-        "A": np.array([
-            [0.984,  0.0,      0.0422029,  0.0],
-            [0.0,    0.98895,  0.0,        0.0326014],
-            [0.0,    0.0,      0.957453,   0.0],
-            [0.0,    0.0,      0.0,        0.967216],
-        ]),
-        "B": np.array([
-            [0.825822,    0.0101995],
-            [0.00512673,  0.624648], 
-            [0.0,         0.468317],
-            [0.307042,    0.0],
-        ]),
-        "Q": np.eye(4),
-        "R": 0.1 * np.eye(2),
-        "x_min": 0,
-        "x_max": 20,
-        "u_min": -1,
-        "u_max": 8,
-    }
-}
-
-envs = {
-    "tank": lambda **kwargs: LinearSystem(
-        A=sys_param["tank"]["A"],
-        B=sys_param["tank"]["B"],
-        Q=sys_param["tank"]["Q"],
-        R=sys_param["tank"]["R"],
-        sqrt_W=args.noise_level * np.eye(4),
-        x_min=sys_param["tank"]["x_min"] * np.ones(4),
-        x_max=sys_param["tank"]["x_max"] * np.ones(4),
-        u_min=sys_param["tank"]["u_min"] * np.ones(2),
-        u_max=sys_param["tank"]["u_max"] * np.ones(2),
-        barrier_thresh=1.,
-        max_steps=args.max_steps_per_episode,
-        keep_stats=(args.train_or_test == "test"),
-        run_name=args.run_name or args.exp_name,
-        **kwargs,
-    ),
-}
-
 default_env_config = {
     "random_seed": args.seed,
     "quiet": args.quiet,
     "device": args.device,
     "bs": get_num_parallel(),
+    "noise_level": args.noise_level,
+    "max_steps": args.max_steps_per_episode,
+    "keep_stats": (args.train_or_test == "test"),
+    "run_name": args.run_name or args.exp_name,
+    "exp_name": args.exp_name,
 }
+
 blacklist_keys = lambda d, blacklist: {k: d[k] for k in d if not (k in blacklist)}
 vecenv.register('RLGPU',
                 lambda config_name, num_actors, **kwargs: RLGPUEnv(config_name, num_actors, **kwargs))
 env_configurations.register('rlgpu', {
     'vecenv_type': 'RLGPU',
-    'env_creator': lambda **env_config: envs[args.env](
+    'env_creator': lambda **env_config: env_creators[args.env](
         **blacklist_keys(default_env_config, env_config.keys()),
         **env_config,
     ),
