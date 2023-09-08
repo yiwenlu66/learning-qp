@@ -1,8 +1,9 @@
 # %% Specify test case
+import numpy as np
 
-# Case where MPC is better
-x0 = np.array([10., 10., 10., 10.])
-x_ref = np.array([19, 19, 2.4, 2.4])   
+# # Case where MPC is better
+# x0 = np.array([10., 10., 10., 10.])
+# x_ref = np.array([19, 19, 2.4, 2.4])   
 
 # Case where MPC fails
 x0 = np.array([ 5.4963946, 10.947876,   1.034516,  18.08066  ])
@@ -16,7 +17,6 @@ sys.path.append(os.path.join(file_path, "../.."))
 
 from envs.env_creators import sys_param, env_creators
 from modules.qp_unrolled_network import QPUnrolledNetwork
-import numpy as np
 import torch
 from matplotlib import pyplot as plt
 
@@ -51,7 +51,7 @@ n_sys = 4
 m_sys = 2
 input_size = 8   # 4 for x, 4 for x_ref
 n = 16
-m = 64
+m = 32
 qp_iter = 10
 device = "cuda:0"
 noise_level = 0
