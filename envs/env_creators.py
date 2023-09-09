@@ -47,6 +47,7 @@ env_creators = {
         keep_stats=kwargs["keep_stats"],
         run_name=kwargs["run_name"],
         exp_name=kwargs["exp_name"],
+        randomize_std=(0.02 if kwargs["randomize"] else 0.),
     ),
 }
 

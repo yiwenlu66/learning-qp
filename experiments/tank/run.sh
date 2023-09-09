@@ -20,7 +20,8 @@ group_one() {
             --noise-level ${noise_level} \
             --n-qp ${n_qp} \
             --m-qp ${m_qp} \
-            --exp-name shared_affine_noise${noise_level}_n${n_qp}_m${m_qp}
+            --randomize \
+            --exp-name shared_affine_noise${noise_level}_n${n_qp}_m${m_qp}+rand
             done
         done
     done
@@ -52,7 +53,8 @@ group_two() {
             --noise-level ${noise_level} \
             --n-qp ${n_qp} \
             --m-qp ${m_qp} \
-            --exp-name shared_affine_noise${noise_level}_n${n_qp}_m${m_qp}
+            --randomize \
+            --exp-name shared_affine_noise${noise_level}_n${n_qp}_m${m_qp}+rand
             done
         done
     done
@@ -63,7 +65,8 @@ group_two() {
         --epochs 2000 \
         --mini-epochs 1 \
         --noise-level ${noise_level} \
-        --exp-name mlp_noise${noise_level}
+        --randomize \
+        --exp-name mlp_noise${noise_level}+rand
     done
 }
 

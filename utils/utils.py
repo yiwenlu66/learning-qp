@@ -6,6 +6,7 @@ import qpsolvers
 import os
 from concurrent.futures import ProcessPoolExecutor
 
+
 def bmv(A, b):
     """Compute matrix multiply vector in batch mode."""
     bs = b.shape[0]

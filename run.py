@@ -58,6 +58,7 @@ parser.add_argument("--mpc-baseline-N", type=int, default=0)
 parser.add_argument("--batch-test", action="store_true")
 parser.add_argument("--run-name", type=str, default="")
 parser.add_argument("--use-osqp-for-mpc", action="store_true")
+parser.add_argument("--randomize", action="store_true")
 args = parser.parse_args()
 
 
@@ -80,6 +81,7 @@ default_env_config = {
     "keep_stats": (args.train_or_test == "test"),
     "run_name": args.run_name or args.exp_name,
     "exp_name": args.exp_name,
+    "randomize": args.randomize,
 }
 
 blacklist_keys = lambda d, blacklist: {k: d[k] for k in d if not (k in blacklist)}

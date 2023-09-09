@@ -4,6 +4,7 @@ from glob import glob
 
 df = pd.DataFrame(columns=[
     "Noise level",
+    "Parametric uncertainty",
     "Method",
     "Horizon",
     "Num of variables",
@@ -36,41 +37,56 @@ def count_parameters(exp_name):
     return total_params
 
 for noise_level in [0, 0.1, 0.2, 0.5]:
-    mlp_df = read_csv(f"mlp_noise{noise_level}_*")
-    df.loc[len(df)] = [
-        noise_level,
-        "MLP",
-        "-",
-        "-",
-        "-",
-        count_parameters(f"mlp_noise{noise_level}"),
-        *get_stat(mlp_df),
-    ]
-    for n in [2, 4, 8, 16]:
-        for m in [2, 4, 8, 16, 32, 64]:
+    for rand in [False, True]:
+        try:
+            wildcard = f"mlp_noise{noise_level}{'_rand' if rand else ''}_2*"
+            mlp_df = read_csv(wildcard)
+            df.loc[len(df)] = [
+                noise_level,
+                rand,
+                "MLP",
+                "-",
+                "-",
+                "-",
+                count_parameters(f"mlp_noise{noise_level}"),
+                *get_stat(mlp_df),
+            ]
+        except:
+            print(f"Error reading file: {wildcard}")
+
+        for n in [2, 4, 8, 16]:
+            for m in [2, 4, 8, 16, 32, 64]:
+                try:
+                    wildcard = f"N0_n{n}_m{m}_noise{noise_level}{'_rand' if rand else ''}_2*"
+                    qp_df = read_csv(wildcard)
+                    df.loc[len(df)] = [
+                        noise_level,
+                        rand,
+                        "QP",
+                        "-",
+                        n,
+                        m,
+                        count_parameters(f"shared_affine_noise{noise_level}_n{n}_m{m}"),
+                        *get_stat(qp_df),
+                    ]
+                except:
+                    print(f"Error reading file: {wildcard}")
+
+        for N in [1, 2, 4, 8, 16]:
             try:
-                qp_df = read_csv(f"N0_n{n}_m{m}_noise{noise_level}_*")
+                wildcard = f"N{N}_noise{noise_level}{'_rand' if rand else ''}_2*"
+                mpc_df = read_csv(wildcard)
                 df.loc[len(df)] = [
                     noise_level,
-                    "QP",
-                    "-",
-                    n,
-                    m,
-                    count_parameters(f"shared_affine_noise{noise_level}_n{n}_m{m}"),
-                    *get_stat(qp_df),
+                    rand,
+                    "MPC",
+                    N,
+                    2 * N,
+                    12 * N,
+                    0,
+                    *get_stat(mpc_df),
                 ]
             except:
-                print(f"Error reading file: N0_n{n}_m{m}_noise{noise_level}_*")
-    for N in [1, 2, 4, 8, 16]:
-        mpc_df = read_csv(f"N{N}_noise{noise_level}_*")
-        df.loc[len(df)] = [
-            noise_level,
-            "MPC",
-            N,
-            2 * N,
-            12 * N,
-            0,
-            *get_stat(mpc_df),
-        ]
+                print(f"Error reading file: {wildcard}")
 
 df.to_csv("benchmark_stat.csv", index=False)

@@ -9,10 +9,33 @@ from datetime import datetime
 from utils.utils import bmv, bqf, bsolve
 from icecream import ic
 
+
 class LinearSystem():
-    def __init__(self, A, B, Q, R, sqrt_W, x_min, x_max, u_min, u_max, bs, barrier_thresh, max_steps, u_eq_min=None, u_eq_max=None, device="cuda:0", random_seed=None, quiet=False, keep_stats=False, run_name="", **kwargs):
+    def __init__(self, A, B, Q, R, sqrt_W, x_min, x_max, u_min, u_max, bs, barrier_thresh, max_steps, u_eq_min=None, u_eq_max=None, device="cuda:0", random_seed=None, quiet=False, keep_stats=False, randomize_std=0., run_name="", **kwargs):
         """
-        When keep_stats == True, statistics of previous episodes will be kept.
+        Initializes the LinearSystem environment with given parameters.
+        
+        Parameters:
+            A (ndarray): System dynamics matrix. Perturbed with standard deviation randomize_std.
+            B (ndarray): Input matrix. Perturbed with standard deviation randomize_std.
+            Q (ndarray): State cost matrix.
+            R (ndarray): Control input cost matrix.
+            sqrt_W (ndarray): Square root of the process noise covariance matrix.
+            x_min (ndarray): Lower bound for each state variable.
+            x_max (ndarray): Upper bound for each state variable.
+            u_min (ndarray): Lower bound for each control input.
+            u_max (ndarray): Upper bound for each control input.
+            bs (int): Batch size for parallel environment execution.
+            barrier_thresh (float): Threshold for state constraint barriers.
+            max_steps (int): Maximum number of steps in an episode.
+            u_eq_min (ndarray, optional): Lower bound for equilibrium control input.
+            u_eq_max (ndarray, optional): Upper bound for equilibrium control input.
+            device (str, optional): Computational device ("cpu" or "cuda").
+            random_seed (int, optional): Random seed for reproducibility.
+            quiet (bool, optional): Suppresses debug prints when set to True.
+            keep_stats (bool, optional): Whether to maintain statistics of episodes.
+            randomize_std (float, optional): Standard deviation for perturbation to A, B matrices.
+            run_name (str, optional): Name tag for the run, useful for logging.
         """
         if random_seed is not None:
             torch.manual_seed(random_seed)
@@ -27,6 +50,13 @@ class LinearSystem():
         self.B = t(B)
         self.Q = t(Q)
         self.R = t(R)
+        self.randomize_std = randomize_std
+        if randomize_std > 0:
+            # Copy the nominal A, B, and repeat A, B along the batch dimension to allow randomization later
+            self.A0 = self.A
+            self.B0 = self.B
+            self.A = self.A.repeat(bs, 1, 1)
+            self.B = self.B.repeat(bs, 1, 1)
         self.sqrt_W = t(sqrt_W)
         self.x_min = t(x_min)
         self.x_max = t(x_max)
@@ -56,12 +86,21 @@ class LinearSystem():
         self.quiet = quiet
 
     def obs(self):
+        """
+        Returns the current observation, which is a concatenation of the current state and reference state.
+        """
         return torch.cat([self.x, self.x_ref], -1)
 
     def cost(self, x, u):
+        """
+        Computes the cost based on the state deviation from the reference and control effort.
+        """
         return bqf(x, self.Q) + bqf(u, self.R)
 
     def reward(self):
+        """
+        Computes the reward based on the current state, control input, and various coefficients.
+        """
         rew_main = -self.cost(self.x - self.x_ref, self.u)
         rew_state_bar = torch.sum(torch.log(((self.x_max - self.x) / self.barrier_thresh).clamp(1e-8, 1.)) + torch.log(((self.x - self.x_min) / self.barrier_thresh).clamp(1e-8, 1.)), dim=-1)
         rew_done = -1.0 * (self.is_done == 1)
@@ -79,25 +118,43 @@ class LinearSystem():
         return rew_total
 
     def done(self):
+        """
+        Checks whether the episode has terminated for each environment in the batch.
+        """
         return self.is_done.bool()
 
     def info(self):
+        """
+        Returns an empty dictionary, serving as a placeholder for additional information.
+        """
         return {}
 
     def get_number_of_agents(self):
+        """
+        Returns the number of agents in the environment, which is 1 in this case.
+        """
         return 1
 
     def get_num_parallel(self):
+        """
+        Returns the batch size for parallel environment execution.
+        """
         return self.bs
 
     def generate_ref(self, size):
+        """
+        Generates a reference state based on the control input bounds and nominal system dynamics.
+        """
         u_ref = self.u_eq_min + (self.u_eq_max - self.u_eq_min) * torch.rand((size, self.m), device=self.device)
-        x_ref = bsolve(torch.eye(self.n, device=self.device).unsqueeze(0) - self.A, bmv(self.B, u_ref))
+        x_ref = bsolve(torch.eye(self.n, device=self.device).unsqueeze(0) - self.A0, bmv(self.B0, u_ref))
         x_ref += self.barrier_thresh * torch.randn((size, self.n), device=self.device)
         x_ref = x_ref.clamp(self.x_min + self.barrier_thresh, self.x_max - self.barrier_thresh)
         return x_ref
 
     def reset_done_envs(self, need_reset=None, x=None, x_ref=None):
+        """
+        Resets the environments that are marked as done, reinitializing the states and references.
+        """
         is_done = self.is_done.bool() if need_reset is None else need_reset
         size = torch.sum(is_done)
         self.step_count[is_done] = 0
@@ -106,16 +163,30 @@ class LinearSystem():
         self.x0[is_done, :] = self.x_min + self.barrier_thresh + (self.x_max - self.x_min - 2 * self.barrier_thresh) * torch.rand((size, self.n), device=self.device) if x is None else x
         self.x[is_done, :] = self.x0[is_done, :]
         self.is_done[is_done] = 0
+        if self.randomize_std > 0:
+            noise_A = torch.randn((size, self.n, self.n), device=self.device) * self.randomize_std
+            noise_B = torch.randn((size, self.n, self.m), device=self.device) * self.randomize_std
+            self.A[is_done, :, :] = self.A0 + noise_A
+            self.B[is_done, :, :] = self.B0 + noise_B
+
 
     def reset(self, x=None, x_ref=None):
+        """
+        Resets the environment, reinitializing the states and references.
+        """
         self.reset_done_envs(torch.ones(self.bs, dtype=torch.bool, device=self.device), x, x_ref)
         return self.obs()
 
     def check_in_bound(self):
+        """
+        Checks whether the current state is within the predefined bounds.
+        """
         return ((self.x_min <= self.x) & (self.x <= self.x_max)).all(dim=-1)
 
     def write_episode_stats(self, i):
-        """Write the stats of an episode to self.stats; call with the index in the batch when an episode is done."""
+        """
+        Logs statistics of the episode for the ith environment in the batch.
+        """
         self.already_on_stats[i] = 1
         x0 = self.x0[i, :].cpu().numpy()
         x_ref = self.x_ref[i, :].cpu().numpy()
@@ -125,6 +196,9 @@ class LinearSystem():
         self.stats.loc[len(self.stats)] = [x0, x_ref, episode_length, cumulative_cost, constraint_violated]
 
     def dump_stats(self, filename=None):
+        """
+        Writes the accumulated statistics to a CSV file.
+        """
         if filename is None:
             directory = 'test_results'
             if not os.path.exists(directory):
@@ -135,6 +209,9 @@ class LinearSystem():
         self.stats.to_csv(filename, index=False)
 
     def step(self, u):
+        """
+        Executes one step in the environment based on the given control input.
+        """
         self.reset_done_envs()
         self.cum_cost += self.cost(self.x - self.x_ref, u)
         self.step_count += 1
@@ -150,6 +227,9 @@ class LinearSystem():
         return self.obs(), self.reward(), self.done(), self.info()
 
     def render(self, **kwargs):
+        """
+        Prints the current state, reference state, and control input for debugging purposes.
+        """
         ic(self.x, self.x_ref, self.u)
         avg_cost = (self.cum_cost / self.step_count).cpu().numpy()
         ic(avg_cost)
