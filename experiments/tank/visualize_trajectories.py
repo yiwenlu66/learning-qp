@@ -2,12 +2,17 @@
 import numpy as np
 
 # # Case where MPC is better
-# x0 = np.array([10., 10., 10., 10.])
-# x_ref = np.array([19, 19, 2.4, 2.4])   
+x0 = np.array([10., 10., 10., 10.])
+x_ref = np.array([19, 19, 2.4, 2.4])   
 
 # Case where MPC fails
-x0 = np.array([ 5.4963946, 10.947876,   1.034516,  18.08066  ])
-x_ref = np.array([7.522859,  8.169776,  1.1107684, 1.       ])
+# x0 = np.array([ 5.4963946, 10.947876,   1.034516,  18.08066  ])
+# x_ref = np.array([7.522859,  8.169776,  1.1107684, 1.       ])
+
+# Controlling process noise and parametric uncertainty
+noise_level = 0
+parametric_uncertainty = True
+parameter_randomization_seed = 0
 
 # %% Set up test bench
 import sys
@@ -54,12 +59,13 @@ n = 16
 m = 32
 qp_iter = 10
 device = "cuda:0"
-noise_level = 0
 
 
 # Learned QP
 net = QPUnrolledNetwork(device, input_size, n, m, qp_iter, None, True, True)
 exp_name = f"shared_affine_noise{noise_level}_n{n}_m{m}"
+if parametric_uncertainty:
+    exp_name += "+rand"
 checkpoint_path = f"runs/tank_{exp_name}/nn/tank.pth"
 policy_net_state_dict, running_mean, running_std = get_state_dict(checkpoint_path)
 net.load_state_dict(policy_net_state_dict)
@@ -86,11 +92,14 @@ env = env_creators["tank"](
     keep_stats=True,
     run_name=exp_name,
     exp_name=exp_name,
+    randomize=parametric_uncertainty,
 )
 
 # %% MLP Policy
 import sys
 mlp_exp_name = f"mlp_noise{noise_level}"
+if parametric_uncertainty:
+    mlp_exp_name += "+rand"
 sys.argv = [""] + f"""test tank --num-parallel 1 \
         --noise-level {noise_level} \
         --exp-name {mlp_exp_name}""".split()
@@ -100,7 +109,7 @@ mlp_player = run.runner.create_player()
 mlp_player.restore(mlp_checkpoint_path)
 
 # %% Test for MPC
-env.reset(t(x0), t(x_ref))
+env.reset(t(x0), t(x_ref), randomize_seed=parameter_randomization_seed)
 done = False
 x = x0
 obs = make_obs(x, x_ref, running_mean, running_std, False)
@@ -122,7 +131,7 @@ while not done:
 xs_qp = [t(x0).squeeze(0)]
 us_qp = []
 done = False
-env.reset(t(x0), t(x_ref))
+env.reset(t(x0), t(x_ref), randomize_seed=parameter_randomization_seed)
 x = x0
 obs = make_obs(x, x_ref, running_mean, running_std, True)
 while not done:
@@ -138,7 +147,7 @@ while not done:
 xs_mlp = [t(x0).squeeze(0)]
 us_mlp = []
 done = False
-env.reset(t(x0), t(x_ref))
+env.reset(t(x0), t(x_ref), randomize_seed=parameter_randomization_seed)
 x = x0
 obs = make_obs(x, x_ref, running_mean, running_std, False)
 while not done:

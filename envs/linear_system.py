@@ -6,7 +6,7 @@ import gym
 import pandas as pd
 import os
 from datetime import datetime
-from utils.utils import bmv, bqf, bsolve
+from utils.utils import bmv, bqf, bsolve, conditional_fork_rng
 from icecream import ic
 
 
@@ -50,11 +50,11 @@ class LinearSystem():
         self.B = t(B)
         self.Q = t(Q)
         self.R = t(R)
+        self.A0 = self.A
+        self.B0 = self.B
         self.randomize_std = randomize_std
         if randomize_std > 0:
             # Copy the nominal A, B, and repeat A, B along the batch dimension to allow randomization later
-            self.A0 = self.A
-            self.B0 = self.B
             self.A = self.A.repeat(bs, 1, 1)
             self.B = self.B.repeat(bs, 1, 1)
         self.sqrt_W = t(sqrt_W)
@@ -151,9 +151,28 @@ class LinearSystem():
         x_ref = x_ref.clamp(self.x_min + self.barrier_thresh, self.x_max - self.barrier_thresh)
         return x_ref
 
-    def reset_done_envs(self, need_reset=None, x=None, x_ref=None):
+    def reset_done_envs(self, need_reset=None, x=None, x_ref=None, randomize_seed=None):
         """
-        Resets the environments that are marked as done, reinitializing the states and references.
+        Resets the environments that are marked as 'done', reinitializing their states and references.
+
+        Parameters:
+        - need_reset (torch.Tensor, optional): A boolean tensor indicating which environments need to be reset. 
+                                            If None, the function will automatically determine this based on self.is_done.
+        - x (torch.Tensor, optional): Initial state tensor for the environments that need to be reset.
+                                    If None, random initial states are generated within defined bounds.
+        - x_ref (torch.Tensor, optional): Reference state tensor for the environments that need to be reset.
+                                        If None, references are generated via self.generate_ref().
+        - randomize_seed (int, optional): Seed for random number generation when randomizing system matrices A and B.
+                                        If None, no seeding is applied.
+
+        Side Effects:
+        - Modifies self.step_count, self.cum_cost, self.x_ref, self.x0, self.x, self.is_done, self.A, and self.B for the 
+        environments that are reset.
+
+        Notes:
+        - The function expects self.is_done, self.x_min, self.x_max, self.barrier_thresh, self.n, self.m, self.device, 
+        self.randomize_std, self.A0, and self.B0 to be pre-defined.
+        - Utilizes the conditional_fork_rng context manager for conditional seeding.
         """
         is_done = self.is_done.bool() if need_reset is None else need_reset
         size = torch.sum(is_done)
@@ -164,17 +183,18 @@ class LinearSystem():
         self.x[is_done, :] = self.x0[is_done, :]
         self.is_done[is_done] = 0
         if self.randomize_std > 0:
-            noise_A = torch.randn((size, self.n, self.n), device=self.device) * self.randomize_std
-            noise_B = torch.randn((size, self.n, self.m), device=self.device) * self.randomize_std
-            self.A[is_done, :, :] = self.A0 + noise_A
-            self.B[is_done, :, :] = self.B0 + noise_B
+            with conditional_fork_rng(seed=randomize_seed, condition=(randomize_seed is not None)):
+                noise_A = torch.randn((size, self.n, self.n), device=self.device) * self.randomize_std
+                noise_B = torch.randn((size, self.n, self.m), device=self.device) * self.randomize_std
+                self.A[is_done, :, :] = self.A0 + noise_A
+                self.B[is_done, :, :] = self.B0 + noise_B
 
 
-    def reset(self, x=None, x_ref=None):
+    def reset(self, x=None, x_ref=None, randomize_seed=None):
         """
         Resets the environment, reinitializing the states and references.
         """
-        self.reset_done_envs(torch.ones(self.bs, dtype=torch.bool, device=self.device), x, x_ref)
+        self.reset_done_envs(torch.ones(self.bs, dtype=torch.bool, device=self.device), x, x_ref, randomize_seed)
         return self.obs()
 
     def check_in_bound(self):

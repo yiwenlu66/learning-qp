@@ -5,6 +5,7 @@ import scipy
 import qpsolvers
 import os
 from concurrent.futures import ProcessPoolExecutor
+from contextlib import nullcontext, contextmanager
 
 
 def bmv(A, b):
@@ -162,3 +163,24 @@ def np_batch_op(f, *arrays):
         
     ret = np.concatenate([np.expand_dims(arr, 0) for arr in results], 0)
     return ret
+
+@contextmanager
+def conditional_fork_rng(seed=None, condition=True):
+    """
+    Context manager for conditionally applying PyTorch's fork_rng.
+
+    Parameters:
+    - seed (int, optional): The seed value for the random number generator.
+    - condition (bool): Determines whether to apply fork_rng or not.
+
+    Yields:
+    - None: Yields control back to the caller within the context.
+    """
+    if condition:
+        with torch.random.fork_rng():
+            if seed is not None:
+                torch.manual_seed(seed)
+            yield
+    else:
+        with nullcontext():
+            yield
