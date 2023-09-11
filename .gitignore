@@ -169,3 +169,7 @@ experiments/tank/run1.sh
 experiments/tank/test_results/
 experiments/tank/*.csv
 
+experiments/cartpole/test_results/
+experiments/cartpole/*.csv
+
+

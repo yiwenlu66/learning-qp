@@ -1,18 +1,14 @@
 # %% Specify test case
 import numpy as np
 
-# # Case where MPC is better
-x0 = np.array([10., 10., 10., 10.])
-x_ref = np.array([19, 19, 2.4, 2.4])   
-
-# Case where MPC fails
-# x0 = np.array([ 5.4963946, 10.947876,   1.034516,  18.08066  ])
-# x_ref = np.array([7.522859,  8.169776,  1.1107684, 1.       ])
+# Initial position and reference position
+x0 = 0.
+x_ref = 1.
 
 # Controlling process noise and parametric uncertainty
 noise_level = 0
 parametric_uncertainty = True
-parameter_randomization_seed = 2
+parameter_randomization_seed = 42
 
 # %% Set up test bench
 import sys
@@ -21,6 +17,7 @@ file_path = os.path.dirname(__file__)
 sys.path.append(os.path.join(file_path, "../.."))
 
 from envs.env_creators import sys_param, env_creators
+from envs.mpc_baseline_parameters import get_mpc_baseline_parameters
 from modules.qp_unrolled_network import QPUnrolledNetwork
 import torch
 from matplotlib import pyplot as plt
@@ -28,8 +25,15 @@ from matplotlib import pyplot as plt
 
 # Utilities
 
-def make_obs(x, x_ref, running_mean, running_std, normalize):
-    raw_obs = torch.tensor(np.concatenate([x, x_ref]), device=device, dtype=torch.float)
+def obs_to_state(obs):
+    # Convert obs in batch size 1 in form (x, x_ref, x_dot, sin(theta), cos(theta), theta_dot) to state (x, x_dot, theta, theta_dot)
+    x, x_ref, x_dot, sin_theta, cos_theta, theta_dot = obs[:, 0], obs[:, 1], obs[:, 2], obs[:, 3], obs[:, 4], obs[:, 5]
+    theta = torch.atan2(sin_theta, cos_theta)
+    return torch.stack([x, x_dot, theta, theta_dot], dim=1).squeeze(0)
+
+def make_obs(state, x_ref, running_mean, running_std, normalize):
+    x, x_dot, theta, theta_dot = state
+    raw_obs = torch.tensor(np.array([x, x_ref, x_dot, np.sin(theta), np.cos(theta), theta_dot]), device=device, dtype=torch.float)
     if not normalize:
         return raw_obs.unsqueeze(0)
     else:
@@ -53,39 +57,34 @@ a = lambda t: t.detach().cpu().numpy()
 
 # Constants and options
 n_sys = 4
-m_sys = 2
-input_size = 8   # 4 for x, 4 for x_ref
+m_sys = 1
+input_size = 6
 n = 16
 m = 32
 qp_iter = 10
 device = "cuda:0"
 
 
-# Learned QP
-net = QPUnrolledNetwork(device, input_size, n, m, qp_iter, None, True, True)
+# # Learned QP
+# net = QPUnrolledNetwork(device, input_size, n, m, qp_iter, None, True, True)
 exp_name = f"shared_affine_noise{noise_level}_n{n}_m{m}"
-if parametric_uncertainty:
-    exp_name += "+rand"
-checkpoint_path = f"runs/tank_{exp_name}/nn/tank.pth"
-policy_net_state_dict, running_mean, running_std = get_state_dict(checkpoint_path)
-net.load_state_dict(policy_net_state_dict)
-running_mean, running_std = running_mean.to(device=device), running_std.to(device=device)
-net.to(device)
+# if parametric_uncertainty:
+#     exp_name += "+rand"
+# checkpoint_path = f"runs/tank_{exp_name}/nn/tank.pth"
+# policy_net_state_dict, running_mean, running_std = get_state_dict(checkpoint_path)
+# net.load_state_dict(policy_net_state_dict)
+# running_mean, running_std = running_mean.to(device=device), running_std.to(device=device)
+# net.to(device)
 
 # MPC module
 mpc_module = QPUnrolledNetwork(
     device, input_size, n, m, qp_iter, None, True, True,
-    mpc_baseline={
-        "n_mpc": n_sys,
-        "m_mpc": m_sys,
-        "N": 8,
-        **sys_param["tank"],
-    },
+    mpc_baseline=get_mpc_baseline_parameters("cartpole", 8),
     use_osqp_for_mpc=True,
 )
 
 # Environment
-env = env_creators["tank"](
+env = env_creators["cartpole"](
     noise_level=noise_level,
     bs=1,
     max_steps=300,
@@ -109,20 +108,18 @@ mlp_player = run.runner.create_player()
 mlp_player.restore(mlp_checkpoint_path)
 
 # %% Test for MPC
-env.reset(t(x0), t(x_ref), randomize_seed=parameter_randomization_seed)
+raw_obs = env.reset(t(x0), t(x_ref), randomize_seed=parameter_randomization_seed)
 done = False
-x = x0
-obs = make_obs(x, x_ref, running_mean, running_std, False)
 
 
-xs_mpc = [obs[0, :4]]
+xs_mpc = [obs_to_state(raw_obs)]
 us_mpc = []
 
 while not done:
-    u_all, problem_params = mpc_module(obs, return_problem_params=True)
+    u_all, problem_params = mpc_module(raw_obs, return_problem_params=True)
     u = u_all[:, :m_sys]
     raw_obs, reward, done_t, info = env.step(u)
-    xs_mpc.append(raw_obs[0, :4])
+    xs_mpc.append(obs_to_state(raw_obs))
     us_mpc.append(u[0, :])
     obs = raw_obs
     done = done_t.item()
@@ -195,20 +192,21 @@ for i in range(2):
         ax = axes[i, j]
         subscript = 2 * i + j
         ax.plot([a(xs_mpc[k][subscript]) for k in range(len(xs_mpc))], label="MPC")
-        ax.plot([a(xs_qp[k][subscript]) for k in range(len(xs_qp))], label="QP")
-        ax.plot([a(xs_mlp[k][subscript]) for k in range(len(xs_mlp))], label="MLP")
-        ax.axhline(y=x_ref[subscript], color='r', linestyle='--', label='Ref')
+        # ax.plot([a(xs_qp[k][subscript]) for k in range(len(xs_qp))], label="QP")
+        # ax.plot([a(xs_mlp[k][subscript]) for k in range(len(xs_mlp))], label="MLP")
+        if subscript == 0:
+            ax.axhline(y=x_ref, color='r', linestyle='--', label='Ref')
         ax.legend()
-        ax.set_title(f'x_{subscript+1}')
+        ax.set_title(['x', 'x_dot', 'theta', 'theta_dot'][subscript])
 
 i = 2
-for j in range(2):
+for j in range(1):
     ax = axes[i, j]
     ax.plot([a(us_mpc[k][j]) for k in range(len(us_mpc))], label="MPC")
-    ax.plot([a(us_qp[k][j]) for k in range(len(us_qp))], label="QP")
-    ax.plot([a(us_mlp[k][j]) for k in range(len(us_mlp))], label="MLP")
+    # ax.plot([a(us_qp[k][j]) for k in range(len(us_qp))], label="QP")
+    # ax.plot([a(us_mlp[k][j]) for k in range(len(us_mlp))], label="MLP")
     ax.legend()
-    ax.set_title(f'u_{j+1}')
+    ax.set_title(f'f')
 
 plt.tight_layout()
 plt.show()

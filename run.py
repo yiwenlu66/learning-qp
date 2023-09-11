@@ -15,6 +15,7 @@ from rl_games.torch_runner import Runner
 from rl_games.algos_torch import model_builder
 
 from envs.env_creators import env_creators, sys_param
+from envs.mpc_baseline_parameters import get_mpc_baseline_parameters
 from utils.rlgame_utils import RLGPUEnv, RLGPUAlgoObserver
 from networks.a2c_qp_unrolled import A2CQPUnrolledBuilder
 
@@ -133,12 +134,7 @@ if args.qp_unrolled:
         "train_warm_starter": args.warm_start and args.train_or_test == "train",
         "ws_loss_coef": args.ws_loss_coef,
         "ws_update_rate": args.ws_update_rate,
-        "mpc_baseline": None if not args.mpc_baseline_N else {
-            "n_mpc": sys_param[args.env]["n"],
-            "m_mpc": sys_param[args.env]["m"],
-            "N": args.mpc_baseline_N,
-            **sys_param[args.env]
-        },
+        "mpc_baseline": None if not args.mpc_baseline_N else get_mpc_baseline_parameters(args.env, args.mpc_baseline_N),
         "use_osqp_for_mpc": args.use_osqp_for_mpc,
     }
 

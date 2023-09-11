@@ -108,8 +108,7 @@ class QPUnrolledNetwork(nn.Module):
             self.mpc_baseline["x_max"],
             self.mpc_baseline["u_min"],
             self.mpc_baseline["u_max"],
-            x[:, :self.mpc_baseline["n_mpc"]],
-            x[:, self.mpc_baseline["n_mpc"]:],
+            *self.mpc_baseline["obs_to_state_and_ref"](x),
         )
         if not use_osqp_oracle:
             solver = QPSolver(x.device, n, m, P, H)
