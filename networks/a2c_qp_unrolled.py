@@ -44,6 +44,7 @@ class A2CQPUnrolled(A2CBuilder.Network):
             ws_update_rate=self.ws_update_rate,
             mpc_baseline=self.mpc_baseline,
             use_osqp_for_mpc=self.use_osqp_for_mpc,
+            use_residual_loss=self.use_residual_loss,
         )
 
         # TODO: exploit structure in value function?
@@ -98,6 +99,7 @@ class A2CQPUnrolled(A2CBuilder.Network):
         self.ws_update_rate = params["custom"]["ws_update_rate"]
         self.mpc_baseline = params["custom"]["mpc_baseline"]
         self.use_osqp_for_mpc = params["custom"]["use_osqp_for_mpc"]
+        self.use_residual_loss = params["custom"]["use_residual_loss"]
 
 class A2CQPUnrolledBuilder(NetworkBuilder):
     def __init__(self, **kwargs):

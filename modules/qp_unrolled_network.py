@@ -27,6 +27,7 @@ class QPUnrolledNetwork(nn.Module):
         ws_loss_shaper=lambda x: x ** (1 / 2),
         mpc_baseline=None,
         use_osqp_for_mpc=False,
+        use_residual_loss=False,
     ):
         """mlp_builder is a function mapping (input_size, output_size) to a nn.Sequential object.
         
@@ -87,6 +88,9 @@ class QPUnrolledNetwork(nn.Module):
 
         self.mpc_baseline = mpc_baseline
         self.use_osqp_for_mpc = use_osqp_for_mpc
+
+        # Whether to consider residual loss during training - this can encourage feasibility of the learned QP problem
+        self.use_residual_loss = use_residual_loss
 
     def compute_warm_starter_loss(self, q, b, Pinv, H, solver_Xs):
         qd, bd, Pinvd, Hd = map(lambda t: t.detach() if t is not None else None, [q, b, Pinv, H])
@@ -165,7 +169,13 @@ class QPUnrolledNetwork(nn.Module):
             if self.train_warm_starter:
                 self.warm_starter_delayed.load_state_dict(interpolate_state_dicts(self.warm_starter_delayed.state_dict(), self.warm_starter.state_dict(), self.ws_update_rate))
 
-            Xs, primal_sols = self.solver(q, b, Pinv=Pinv, H=H, iters=self.qp_iter)
+            if self.use_residual_loss:
+                Xs, primal_sols, residuals = self.solver(q, b, Pinv=Pinv, H=H, iters=self.qp_iter, return_residuals=True)
+                primal_residual, dual_residual = residuals
+                residual_loss = ((primal_residual ** 2).sum(dim=-1) + (dual_residual ** 2).sum(dim=-1)).mean()
+                self.autonomous_losses["residual"] = 1e-3 * residual_loss
+            else:
+                Xs, primal_sols = self.solver(q, b, Pinv=Pinv, H=H, iters=self.qp_iter)
             if self.train_warm_starter:
                 self.autonomous_losses["warm_starter"] = self.compute_warm_starter_loss(q, b, Pinv, H, Xs)
             sol = primal_sols[:, -1, :]
