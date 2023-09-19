@@ -6,12 +6,12 @@ x0 = np.array([10., 10., 10., 10.])
 x_ref = np.array([19, 19, 2.4, 2.4])   
 
 # Case where MPC fails
-# x0 = np.array([ 5.4963946, 10.947876,   1.034516,  18.08066  ])
-# x_ref = np.array([7.522859,  8.169776,  1.1107684, 1.       ])
+x0 = np.array([ 5.4963946, 10.947876,   1.034516,  18.08066  ])
+x_ref = np.array([7.522859,  8.169776,  1.1107684, 1.       ])
 
 # Controlling process noise and parametric uncertainty
 noise_level = 0
-parametric_uncertainty = True
+parametric_uncertainty = False
 parameter_randomization_seed = 2
 
 # %% Set up test bench
@@ -21,6 +21,7 @@ file_path = os.path.dirname(__file__)
 sys.path.append(os.path.join(file_path, "../.."))
 
 from envs.env_creators import sys_param, env_creators
+from envs.mpc_baseline_parameters import get_mpc_baseline_parameters
 from modules.qp_unrolled_network import QPUnrolledNetwork
 import torch
 from matplotlib import pyplot as plt
@@ -75,12 +76,7 @@ net.to(device)
 # MPC module
 mpc_module = QPUnrolledNetwork(
     device, input_size, n, m, qp_iter, None, True, True,
-    mpc_baseline={
-        "n_mpc": n_sys,
-        "m_mpc": m_sys,
-        "N": 8,
-        **sys_param["tank"],
-    },
+    mpc_baseline=get_mpc_baseline_parameters("tank", 1),
     use_osqp_for_mpc=True,
 )
 

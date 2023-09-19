@@ -3,14 +3,13 @@ import numpy as np
 import torch
 
 def get_mpc_baseline_parameters(env_name, N):
-    env_name
     mpc_parameters = {
         "n_mpc": sys_param[env_name]["n"],
         "m_mpc": sys_param[env_name]["m"],
         "N": N,
         **sys_param[env_name],
     }
-    if env_name == "linear_system":
+    if env_name == "tank":
         # Compute state and ref from obs: the first n entries of obs is state, and the latter n entries are ref
         mpc_parameters["obs_to_state_and_ref"] = lambda obs: (obs[:, :mpc_parameters["n_mpc"]], obs[:, mpc_parameters["n_mpc"]:])
     if env_name == "cartpole":

@@ -113,20 +113,21 @@ class QPUnrolledNetwork(nn.Module):
             self.mpc_baseline["u_min"],
             self.mpc_baseline["u_max"],
             *self.mpc_baseline["obs_to_state_and_ref"](x),
+            normalize=self.mpc_baseline.get("normalize", False),
         )
         if not use_osqp_oracle:
             solver = QPSolver(x.device, n, m, P, H)
             Xs, primal_sols = solver(q, b, iters=100)
             sol = primal_sols[:, -1, :]
         else:
-            f = lambda t: t.cpu().numpy()
+            f = lambda t: t.detach().cpu().numpy()
             f_sparse = lambda t: scipy.sparse.csc_matrix(t.cpu().numpy())
             t = lambda a: torch.tensor(a, dtype=torch.float, device=self.device)
             if q.shape[0] > 1:
                 sol = t(np_batch_op(osqp_oracle, f(q), f(b), f_sparse(P), f_sparse(H)))
             else:
                 sol = t(osqp_oracle(f(q[0, :]), f(b[0, :]), f_sparse(P), f_sparse(H))).unsqueeze(0)
-        return sol, (P, q, H, b)
+        return sol, (P.unsqueeze(0), q, H.unsqueeze(0), b)
 
     def forward(self, x, return_problem_params=False):
         if self.mpc_baseline is not None:
