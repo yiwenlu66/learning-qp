@@ -5,7 +5,7 @@ from torch.linalg import solve, inv, pinv
 import numpy as np
 
 from .preconditioner import Preconditioner
-from utils.utils import bmv, bma, bsolve
+from ..utils.utils import bmv, bma, bsolve
 
 class QPSolver(nn.Module):
     """

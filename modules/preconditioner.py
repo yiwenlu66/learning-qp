@@ -4,7 +4,7 @@ from torch.nn import functional as F
 from torch.linalg import solve, inv, pinv
 import numpy as np
 
-from utils.utils import make_psd, vectorize_upper_triangular
+from ..utils.utils import make_psd, vectorize_upper_triangular
 
 class Preconditioner(nn.Module):
     def __init__(self, device, n, m,

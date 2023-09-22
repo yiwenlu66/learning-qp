@@ -2,7 +2,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from rl_games.algos_torch.network_builder import NetworkBuilder, A2CBuilder
-from modules.qp_unrolled_network import QPUnrolledNetwork
+from ..modules.qp_unrolled_network import QPUnrolledNetwork
 
 class A2CQPUnrolled(A2CBuilder.Network):
     def __init__(self, params, **kwargs):

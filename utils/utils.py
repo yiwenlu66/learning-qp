@@ -31,6 +31,8 @@ def bqf(x, A):
 
 def bsolve(A, B):
     """Compute solve(A, B) in batch mode, where the first dimension of A can be singleton."""
+    if A.dtype != torch.float:
+        import ipdb; ipdb.set_trace()
     if A.dim() == 3 and B.dim() == 2 and A.shape[0] == 1:
         return torch.linalg.solve(A.squeeze(0), B.t()).t()
     else:
