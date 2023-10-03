@@ -4,7 +4,10 @@ import numpy as np
 import scipy
 from ..modules.qp_solver import QPSolver
 from ..modules.warm_starter import WarmStarter
-from ..utils.utils import make_psd, interpolate_state_dicts, mpc2qp, osqp_oracle, np_batch_op
+from ..utils.torch_utils import make_psd, interpolate_state_dicts
+from ..utils.mpc_utils import mpc2qp
+from ..utils.osqp_utils import osqp_oracle
+from ..utils.np_batch_op import np_batch_op
 
 
 class QPUnrolledNetwork(nn.Module):

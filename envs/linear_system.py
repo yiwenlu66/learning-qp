@@ -6,7 +6,7 @@ import gym
 import pandas as pd
 import os
 from datetime import datetime
-from utils.utils import bmv, bqf, bsolve, conditional_fork_rng
+from utils.torch_utils import bmv, bqf, bsolve, conditional_fork_rng, get_rng
 from icecream import ic
 
 
@@ -37,11 +37,20 @@ class LinearSystem():
             randomize_std (float, optional): Standard deviation for perturbation to A, B matrices.
             run_name (str, optional): Name tag for the run, useful for logging.
         """
+        # Random seed and random number generators for different components
         if random_seed is not None:
             torch.manual_seed(random_seed)
             torch.cuda.manual_seed_all(random_seed)
             np.random.seed(random_seed)
             random.seed(random_seed)
+        # Random number generator for initial states and references
+        self.rng_initial = get_rng(device, random_seed)
+        # Random number generator for process noise
+        self.rng_process = get_rng(device, random_seed)
+        # Random number generator for randomization of A, B matrices
+        self.rng_dynamics = get_rng(device, random_seed)
+
+        # Environment definitions
         self.device = device
         self.n = A.shape[0]
         self.m = B.shape[1]
@@ -76,13 +85,15 @@ class LinearSystem():
         self.x0 = 0.5 * (self.x_max + self.x_min) * torch.ones((bs, self.n), device=device)
         self.u = torch.zeros((bs, self.m), device=device)
         self.x_ref = 0.5 * (self.x_max + self.x_min) * torch.ones((bs, self.n), device=device)
+        # Keep record of the first noise vector in each trajectory, as an identifier of the instantiation of the randomness
+        self.w0 = torch.zeros_like(self.x)
         self.is_done = torch.zeros((bs,), dtype=torch.uint8, device=device)
         self.step_count = torch.zeros((bs,), dtype=torch.long, device=device)
         self.cum_cost = torch.zeros((bs,), dtype=torch.float, device=device)
         self.run_name = run_name
         self.keep_stats = keep_stats
         self.already_on_stats = torch.zeros((bs,), dtype=torch.uint8, device=device)   # Each worker can only contribute once to the statistics, to avoid bias towards shorter episodes
-        self.stats = pd.DataFrame(columns=['x0', 'x_ref', 'episode_length', 'cumulative_cost', 'constraint_violated'])
+        self.stats = pd.DataFrame(columns=['i', 'x0', 'x_ref', 'A', 'B', 'w0', 'episode_length', 'cumulative_cost', 'constraint_violated'])
         self.quiet = quiet
 
     def obs(self):
@@ -145,9 +156,9 @@ class LinearSystem():
         """
         Generates a reference state based on the control input bounds and nominal system dynamics.
         """
-        u_ref = self.u_eq_min + (self.u_eq_max - self.u_eq_min) * torch.rand((size, self.m), device=self.device)
+        u_ref = self.u_eq_min + (self.u_eq_max - self.u_eq_min) * torch.rand((size, self.m), generator=self.rng_initial, device=self.device)
         x_ref = bsolve(torch.eye(self.n, device=self.device).unsqueeze(0) - self.A0, bmv(self.B0, u_ref))
-        x_ref += self.barrier_thresh * torch.randn((size, self.n), device=self.device)
+        x_ref += self.barrier_thresh * torch.randn((size, self.n), generator=self.rng_initial, device=self.device)
         x_ref = x_ref.clamp(self.x_min + self.barrier_thresh, self.x_max - self.barrier_thresh)
         return x_ref
 
@@ -179,15 +190,22 @@ class LinearSystem():
         self.step_count[is_done] = 0
         self.cum_cost[is_done] = 0
         self.x_ref[is_done, :] = self.generate_ref(size) if x_ref is None else x_ref
-        self.x0[is_done, :] = self.x_min + self.barrier_thresh + (self.x_max - self.x_min - 2 * self.barrier_thresh) * torch.rand((size, self.n), device=self.device) if x is None else x
+        self.x0[is_done, :] = self.x_min + self.barrier_thresh + (self.x_max - self.x_min - 2 * self.barrier_thresh) * torch.rand((size, self.n), generator=self.rng_initial, device=self.device) if x is None else x
         self.x[is_done, :] = self.x0[is_done, :]
         self.is_done[is_done] = 0
         if self.randomize_std > 0:
-            with conditional_fork_rng(seed=randomize_seed, condition=(randomize_seed is not None)):
-                noise_A = torch.randn((size, self.n, self.n), device=self.device) * self.randomize_std
-                noise_B = torch.randn((size, self.n, self.m), device=self.device) * self.randomize_std
-                self.A[is_done, :, :] = self.A0 + noise_A
-                self.B[is_done, :, :] = self.B0 + noise_B
+            if randomize_seed is not None:
+                # Seed for randomization of dynamics is specified in function all; use it directly
+                with torch.random.fork_rng():
+                    torch.manual_seed(randomize_seed)
+                    noise_A = torch.randn((size, self.n, self.n), device=self.device) * self.randomize_std
+                    noise_B = torch.randn((size, self.n, self.m), device=self.device) * self.randomize_std
+            else:
+                # No seed specified; use predefined random number generator for randomization of dynamics
+                noise_A = torch.randn((size, self.n, self.n), generator=self.rng_dynamics, device=self.device) * self.randomize_std
+                noise_B = torch.randn((size, self.n, self.m), generator=self.rng_dynamics, device=self.device) * self.randomize_std
+            self.A[is_done, :, :] = self.A0 + noise_A
+            self.B[is_done, :, :] = self.B0 + noise_B
 
 
     def reset(self, x=None, x_ref=None, randomize_seed=None):
@@ -210,10 +228,18 @@ class LinearSystem():
         self.already_on_stats[i] = 1
         x0 = self.x0[i, :].cpu().numpy()
         x_ref = self.x_ref[i, :].cpu().numpy()
+
+        # Get the A and B matrices and flatten for the ith environment
+        index = 0 if self.randomize_std == 0 else i
+        A = self.A[index, :, :].cpu().numpy().flatten()
+        B = self.B[index, :, :].cpu().numpy().flatten()
+
+        w0 = self.w0[i, :].cpu().numpy()
+
         episode_length = self.step_count[i].item()
         cumulative_cost = self.cum_cost[i].item()
         constraint_violated = (self.is_done[i] == 1).item()
-        self.stats.loc[len(self.stats)] = [x0, x_ref, episode_length, cumulative_cost, constraint_violated]
+        self.stats.loc[len(self.stats)] = [i.item(), x0, x_ref, A, B, w0, episode_length, cumulative_cost, constraint_violated]
 
     def dump_stats(self, filename=None):
         """
@@ -226,6 +252,7 @@ class LinearSystem():
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             tag = self.run_name
             filename = os.path.join(directory, f"{tag}_{timestamp}.csv")
+        self.stats = self.stats.sort_values(by='i')
         self.stats.to_csv(filename, index=False)
 
     def step(self, u):
@@ -236,8 +263,10 @@ class LinearSystem():
         u = u.clamp(self.u_min, self.u_max)
         self.u = u
         self.cum_cost += self.cost(self.x - self.x_ref, u)
+        w = bmv(self.sqrt_W, torch.randn((self.bs, self.n), generator=self.rng_process, device=self.device))
+        self.w0[self.step_count == 0, :] = w[self.step_count == 0, :]
+        self.x = bmv(self.A, self.x) + bmv(self.B, u) + w
         self.step_count += 1
-        self.x = bmv(self.A, self.x) + bmv(self.B, u) + bmv(self.sqrt_W, torch.randn((self.bs, self.n), device=self.device))
         self.is_done[torch.logical_not(self.check_in_bound()).nonzero()] = 1   # 1 for failure
         self.is_done[self.step_count >= self.max_steps] = 2  # 2 for timeout
         if self.keep_stats:

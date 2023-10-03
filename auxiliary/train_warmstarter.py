@@ -6,7 +6,7 @@ file_path = os.path.dirname(__file__)
 sys.path.append(os.path.join(file_path, ".."))
 from modules.warm_starter import WarmStarter
 from modules.qp_solver import QPSolver
-from utils.utils import generate_random_problem
+from utils.mpc_utils import generate_random_problem
 import torch
 from torch.nn import functional as F
 import argparse

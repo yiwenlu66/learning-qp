@@ -5,7 +5,8 @@ file_path = os.path.dirname(__file__)
 sys.path.append(os.path.join(file_path, ".."))
 from modules.qp_solver import QPSolver
 from modules.warm_starter import WarmStarter
-from utils.utils import generate_random_problem, bqf, bmv, bvv
+from utils.torch_utils import bqf, bmv, bvv
+from utils.mpc_utils import generate_random_problem
 import torch
 from torch.nn import functional as F
 import numpy as np

@@ -3,7 +3,7 @@ from torch import nn
 from torch.nn import functional as F
 from torch.linalg import solve, inv, pinv
 import numpy as np
-from ..utils.utils import vectorize_upper_triangular
+from ..utils.torch_utils import vectorize_upper_triangular
 
 class WarmStarter(nn.Module):
     def __init__(self, device, n, m, fixed_P=True, fixed_H=True):

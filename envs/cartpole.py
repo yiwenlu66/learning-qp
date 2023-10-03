@@ -6,7 +6,7 @@ import os
 import random
 from datetime import datetime
 from icecream import ic
-from utils.utils import conditional_fork_rng, bsolve, bqf
+from utils.torch_utils import conditional_fork_rng, bsolve, bqf
 
 
 class CartPole():

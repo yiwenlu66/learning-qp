@@ -59,13 +59,9 @@ env_creators = {
         u_max=sys_param["tank"]["u_max"] * np.ones(2),
         u_eq_min=sys_param["tank"]["u_eq_min"] * np.ones(2),
         u_eq_max=sys_param["tank"]["u_eq_max"] * np.ones(2),
-        bs=kwargs["bs"],
         barrier_thresh=1.,
-        max_steps=kwargs["max_steps"],
-        keep_stats=kwargs["keep_stats"],
-        run_name=kwargs["run_name"],
-        exp_name=kwargs["exp_name"],
-        randomize_std=(0.005 if kwargs["randomize"] else 0.),
+        randomize_std=(0.001 if kwargs["randomize"] else 0.),
+        **kwargs
     ),
     "cartpole": lambda **kwargs: CartPole(
         parameters={

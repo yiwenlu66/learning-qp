@@ -4,7 +4,7 @@ import sys
 import os
 file_path = os.path.dirname(__file__)
 sys.path.append(os.path.join(file_path, ".."))
-from utils.utils import osqp_oracle
+from utils.osqp_utils import osqp_oracle
 
 problem = np.load("example_problem.npy", allow_pickle=True).item()
 q = problem["q"]
