@@ -150,13 +150,20 @@ class QPSolver(nn.Module):
         return primal_residual, dual_residual
 
 
-    def forward(self, q, b, P=None, H=None, Pinv=None, iters=1000, return_residuals=False):
+    def forward(
+        self, q, b,
+        P=None, H=None, Pinv=None,
+        iters=1000,
+        only_last_primal=True,
+        return_residuals=False
+    ):
         """
         Solves the QP problem using PDHG.
         
         q, b: Coefficients in the objective and constraint
         P, H, Pinv: Optional matrices defining the QP, i.e., matrix H, and (either the matrix P or its inverse). Must be provided if not initialized. Using Pinv is more efficient in learned setting.
         iters: Number of PDHG iterations
+        only_last_primal: Flag for returning only the last primal solution (when True, primal_sols is (bs, 1, n); otherwise (bs, iters + 1, n))
         return_residuals: Flag for returning residuals
         
         Returns: History of primal-dual variables, primal solutions, and optionally residuals of the last iteration
@@ -167,7 +174,7 @@ class QPSolver(nn.Module):
             Xs = torch.zeros((bs, iters + 1, 2 * self.m), device=self.device)
         else:
             Xs = None
-        primal_sols = torch.zeros((bs, iters + 1, self.n), device=self.device)
+        primal_sols = torch.zeros((bs, (iters if not only_last_primal else 0) + 1, self.n), device=self.device)
         if self.warm_starter is not None:
             with torch.set_grad_enabled(self.is_warm_starter_trainable):
                 qd, bd, Pd, Hd, Pinvd = map(lambda t: t.detach() if t is not None else None, [q, b, P, H, Pinv])
@@ -176,7 +183,8 @@ class QPSolver(nn.Module):
         get_sol = self.get_sol if self.get_sol is not None else self.get_sol_transform(H, P, Pinv)
         if self.keep_X:
             Xs[:, 0, :] = self.X0.clone()
-        primal_sols[:, 0, :] = get_sol(self.X0[:, self.m:], q, b)
+        if not only_last_primal:
+            primal_sols[:, 0, :] = get_sol(self.X0[:, self.m:], q, b)
         X = self.X0
         A, B = self.get_AB(q, b, H, P, Pinv)
         for k in range(1, iters + 1):
@@ -185,7 +193,11 @@ class QPSolver(nn.Module):
             F.relu(X[:, self.m:], inplace=True)    # do projection
             if self.keep_X:
                 Xs[:, k, :] = X.clone()
-            primal_sols[:, k, :] = get_sol(X[:, self.m:], q, b)
+            if not only_last_primal:
+                primal_sols[:, k, :] = get_sol(X[:, self.m:], q, b)
+
+        if only_last_primal:
+            primal_sols[:, 0, :] = get_sol(X[:, self.m:], q, b)
 
         # Compute residuals for the last step if the flag is set
         if return_residuals:
