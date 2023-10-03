@@ -20,9 +20,9 @@ import os
 file_path = os.path.dirname(__file__)
 sys.path.append(os.path.join(file_path, "../.."))
 
-from envs.env_creators import sys_param, env_creators
-from envs.mpc_baseline_parameters import get_mpc_baseline_parameters
-from modules.qp_unrolled_network import QPUnrolledNetwork
+from src.envs.env_creators import sys_param, env_creators
+from src.envs.mpc_baseline_parameters import get_mpc_baseline_parameters
+from src.modules.qp_unrolled_network import QPUnrolledNetwork
 import torch
 from matplotlib import pyplot as plt
 
@@ -41,8 +41,12 @@ def get_state_dict(checkpoint_path):
     model = checkpoint["model"]
     prefix = "a2c_network.policy_net."
     policy_net_state_dict = {k.lstrip(prefix): v for (k, v) in model.items() if k.startswith(prefix)}
-    running_mean = model["running_mean_std.running_mean"].to(dtype=torch.float)
-    running_std = model["running_mean_std.running_var"].sqrt().to(dtype=torch.float)
+    if "running_mean_std.running_mean" in model:
+        running_mean = model["running_mean_std.running_mean"].to(dtype=torch.float)
+        running_std = model["running_mean_std.running_var"].sqrt().to(dtype=torch.float)
+    else:
+        running_mean = torch.tensor([0.])
+        running_std = torch.tensor([1.])
     return policy_net_state_dict, running_mean, running_std
 
 def rescale_action(action, low=-1., high=8.):

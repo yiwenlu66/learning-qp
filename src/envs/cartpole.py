@@ -6,7 +6,7 @@ import os
 import random
 from datetime import datetime
 from icecream import ic
-from utils.torch_utils import conditional_fork_rng, bsolve, bqf
+from ..utils.torch_utils import conditional_fork_rng, bsolve, bqf
 
 
 class CartPole():
@@ -97,7 +97,10 @@ class CartPole():
 
         # Gym environment settings
         self.observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32)
+        self.state_space = self.observation_space
         self.action_space = gym.spaces.Box(low=self.u_min, high=self.u_max, shape=(1,), dtype=np.float32)
+        self.num_states = 6
+        self.num_actions = 1
 
         # Other parameters
         self.barrier_thresh = barrier_thresh

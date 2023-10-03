@@ -14,10 +14,10 @@ from rl_games.common import env_configurations, vecenv
 from rl_games.torch_runner import Runner
 from rl_games.algos_torch import model_builder
 
-from envs.env_creators import env_creators, sys_param
-from envs.mpc_baseline_parameters import get_mpc_baseline_parameters
-from utils.rlgame_utils import RLGPUEnv, RLGPUAlgoObserver
-from networks.a2c_qp_unrolled import A2CQPUnrolledBuilder
+from src.envs.env_creators import env_creators, sys_param
+from src.envs.mpc_baseline_parameters import get_mpc_baseline_parameters
+from src.utils.rlgame_utils import RLGPUEnv, RLGPUAlgoObserver
+from src.networks.a2c_qp_unrolled import A2CQPUnrolledBuilder
 
 model_builder.register_network('qp_unrolled', A2CQPUnrolledBuilder)
 
@@ -61,6 +61,7 @@ parser.add_argument("--run-name", type=str, default="")
 parser.add_argument("--use-osqp-for-mpc", action="store_true")
 parser.add_argument("--randomize", action="store_true")
 parser.add_argument("--use-residual-loss", action="store_true")
+parser.add_argument("--no-obs-normalization", action="store_true")
 args = parser.parse_args()
 
 
@@ -118,6 +119,8 @@ runner_config["params"]["network"]["mlp"]["units"] = [args.mlp_size_last * i for
 runner_config["params"]["config"]["save_frequency"] = args.save_freq
 runner_config["params"]["config"]["device"] = args.device
 runner_config["params"]["network"].pop("rnn")
+if args.no_obs_normalization:
+    runner_config["params"]["config"]["normalize_input"] = False
 
 if args.batch_test:
     runner_config["params"]["config"]["player"]["games_num"] = args.num_parallel

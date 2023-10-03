@@ -6,7 +6,7 @@ import gym
 import pandas as pd
 import os
 from datetime import datetime
-from utils.torch_utils import bmv, bqf, bsolve, conditional_fork_rng, get_rng
+from ..utils.torch_utils import bmv, bqf, bsolve, conditional_fork_rng, get_rng
 from icecream import ic
 
 

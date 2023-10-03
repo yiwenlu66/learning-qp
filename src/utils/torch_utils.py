@@ -1,6 +1,7 @@
 import torch
 from torch.nn import functional as F
 from contextlib import nullcontext, contextmanager
+import numpy as np
 
 
 def bmv(A, b):
