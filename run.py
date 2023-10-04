@@ -64,6 +64,7 @@ parser.add_argument("--use-residual-loss", action="store_true")
 parser.add_argument("--no-obs-normalization", action="store_true")
 parser.add_argument("--no-b", action="store_true")
 parser.add_argument("--imitate-mpc-N", type=int, default=0)
+parser.add_argument("--initialize-from-experiment", type=str, default="")
 args = parser.parse_args()
 
 
@@ -166,9 +167,16 @@ else:
 
 if __name__ == "__main__":
     if args.train_or_test == "train":
-        runner.run({
+        runner_arg = {
             'train': True,
-        })
+            'play': False,
+        }
+        if args.initialize_from_experiment:
+            full_checkpoint_name = args.env + "_" + args.initialize_from_experiment
+            checkpoint_dir = f"runs/{full_checkpoint_name}/nn"
+            checkpoint_name = f"{checkpoint_dir}/{args.env}.pth"
+            runner_arg['checkpoint'] = checkpoint_name
+        runner.run(runner_arg)
     elif args.train_or_test == "test":
         if not args.mpc_baseline_N:
             checkpoint_dir = f"runs/{full_experiment_name}/nn"
