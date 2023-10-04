@@ -62,6 +62,7 @@ parser.add_argument("--use-osqp-for-mpc", action="store_true")
 parser.add_argument("--randomize", action="store_true")
 parser.add_argument("--use-residual-loss", action="store_true")
 parser.add_argument("--no-obs-normalization", action="store_true")
+parser.add_argument("--no-b", action="store_true")
 args = parser.parse_args()
 
 
@@ -141,6 +142,7 @@ if args.qp_unrolled:
         "mpc_baseline": None if not args.mpc_baseline_N else get_mpc_baseline_parameters(args.env, args.mpc_baseline_N),
         "use_osqp_for_mpc": args.use_osqp_for_mpc,
         "use_residual_loss": args.use_residual_loss,
+        "no_b": args.no_b,
     }
 
 if args.mpc_baseline_N:

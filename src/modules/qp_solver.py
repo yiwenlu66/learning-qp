@@ -19,7 +19,9 @@ class QPSolver(nn.Module):
             alpha=1, beta=1,
             preconditioner=None, warm_starter=None,
             is_warm_starter_trainable=False,
-            keep_X=True):
+            keep_X=True,
+            no_b=False,
+        ):
         """
         Initialize the QP solver.
         
@@ -31,6 +33,7 @@ class QPSolver(nn.Module):
         warm_starter: Optional warm start module
         is_warm_starter_trainable: Flag for training the warm starter
         keep_X: Flag for keeping the primal-dual variable history
+        no_b: Flag for skipping the constraint vector b; when True, the constraint is assumed to be -1 <= Hx <= 1.
         
         Note: Assumes that H is full column rank when m >= n, and full row rank otherwise.
         """
@@ -51,6 +54,7 @@ class QPSolver(nn.Module):
         self.warm_starter = warm_starter
         self.is_warm_starter_trainable = is_warm_starter_trainable
         self.keep_X = keep_X
+        self.no_b = no_b
         self.bIm = torch.eye(m, device=device).unsqueeze(0)
         self.X0 = torch.zeros((1, 2 * self.m), device=self.device)
         self.get_sol = self.get_sol_transform(self.bP, self.bH) if self.bP is not None and self.bH is not None else None
@@ -165,6 +169,8 @@ class QPSolver(nn.Module):
         iters: Number of PDHG iterations
         only_last_primal: Flag for returning only the last primal solution (when True, primal_sols is (bs, 1, n); otherwise (bs, iters + 1, n))
         return_residuals: Flag for returning residuals
+
+        When self.no_b is True, the argument b is ignored.
         
         Returns: History of primal-dual variables, primal solutions, and optionally residuals of the last iteration
         """
@@ -186,25 +192,32 @@ class QPSolver(nn.Module):
         if not only_last_primal:
             primal_sols[:, 0, :] = get_sol(self.X0[:, self.m:], q, b)
         X = self.X0
-        A, B = self.get_AB(q, b, H, P, Pinv)
+        b_ = b if not self.no_b else torch.zeros((bs, self.m), device=self.device)
+        A, B = self.get_AB(q, b_, H, P, Pinv)
         for k in range(1, iters + 1):
             # PDHG update
             X = bmv(A, X) + B   # (bs, 2m)
-            F.relu(X[:, self.m:], inplace=True)    # do projection
+            if not self.no_b:
+                # Project to [0, +\infty)
+                F.relu(X[:, self.m:], inplace=True)
+            else:
+                # Project to [-1, 1]
+                projected = torch.clamp(X[:, self.m:], -1, 1)
+                X = torch.cat((X[:, :self.m], projected), dim=1)
             if self.keep_X:
                 Xs[:, k, :] = X.clone()
             if not only_last_primal:
-                primal_sols[:, k, :] = get_sol(X[:, self.m:], q, b)
+                primal_sols[:, k, :] = get_sol(X[:, self.m:], q, b_)
 
         if only_last_primal:
-            primal_sols[:, 0, :] = get_sol(X[:, self.m:], q, b)
+            primal_sols[:, 0, :] = get_sol(X[:, self.m:], q, b_)
 
         # Compute residuals for the last step if the flag is set
         if return_residuals:
             x_last = primal_sols[:, -1, :]
             z_last = Xs[:, -1, self.m:]
             u_last = Xs[:, -1, :self.m]
-            primal_residual, dual_residual = self.compute_residuals(x_last, z_last, u_last, q, b, P, H, Pinv)
+            primal_residual, dual_residual = self.compute_residuals(x_last, z_last, u_last, q, b_, P, H, Pinv)
             return Xs, primal_sols, (primal_residual, dual_residual)
         else:
             return Xs, primal_sols
