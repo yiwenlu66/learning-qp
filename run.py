@@ -63,6 +63,7 @@ parser.add_argument("--randomize", action="store_true")
 parser.add_argument("--use-residual-loss", action="store_true")
 parser.add_argument("--no-obs-normalization", action="store_true")
 parser.add_argument("--no-b", action="store_true")
+parser.add_argument("--imitate-mpc-N", type=int, default=0)
 args = parser.parse_args()
 
 
@@ -139,7 +140,8 @@ if args.qp_unrolled:
         "train_warm_starter": args.warm_start and args.train_or_test == "train",
         "ws_loss_coef": args.ws_loss_coef,
         "ws_update_rate": args.ws_update_rate,
-        "mpc_baseline": None if not args.mpc_baseline_N else get_mpc_baseline_parameters(args.env, args.mpc_baseline_N),
+        "mpc_baseline": None if (not args.mpc_baseline_N and not args.imitate_mpc_N) else get_mpc_baseline_parameters(args.env, args.mpc_baseline_N or args.imitate_mpc_N),
+        "imitate_mpc": args.imitate_mpc_N > 0,
         "use_osqp_for_mpc": args.use_osqp_for_mpc,
         "use_residual_loss": args.use_residual_loss,
         "no_b": args.no_b,
@@ -149,6 +151,12 @@ if args.mpc_baseline_N:
     # Unset observation and action normalization
     runner_config["params"]["config"]["clip_actions"] = False
     runner_config["params"]["config"]["normalize_input"] = False
+
+if args.imitate_mpc_N:
+    # Unset observation normalization
+    runner_config["params"]["config"]["normalize_input"] = False
+    # Make MPC output normalized action
+    runner_config["params"]["network"]["custom"]["mpc_baseline"]["normalize"] = True
 
 if args.quiet:
     with suppress_stdout_stderr():
