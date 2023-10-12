@@ -6,8 +6,8 @@ x0 = np.array([10., 10., 10., 10.])
 x_ref = np.array([19, 19, 2.4, 2.4])   
 
 # Case where MPC fails
-x0 = np.array([ 5.4963946, 10.947876,   1.034516,  18.08066  ])
-x_ref = np.array([7.522859,  8.169776,  1.1107684, 1.       ])
+# x0 = np.array([ 5.4963946, 10.947876,   1.034516,  18.08066  ])
+# x_ref = np.array([7.522859,  8.169776,  1.1107684, 1.       ])
 
 # Controlling process noise and parametric uncertainty
 noise_level = 0
@@ -60,15 +60,16 @@ a = lambda t: t.detach().cpu().numpy()
 n_sys = 4
 m_sys = 2
 input_size = 8   # 4 for x, 4 for x_ref
-n = 16
-m = 32
+n = 2
+m = 64
 qp_iter = 10
 device = "cuda:0"
 
 
 # Learned QP
 net = QPUnrolledNetwork(device, input_size, n, m, qp_iter, None, True, True)
-exp_name = f"shared_affine_noise{noise_level}_n{n}_m{m}"
+# exp_name = f"shared_affine_noise{noise_level}_n{n}_m{m}-norm"
+exp_name = "residual_loss_on"
 if parametric_uncertainty:
     exp_name += "+rand"
 checkpoint_path = f"runs/tank_{exp_name}/nn/tank.pth"
@@ -80,8 +81,8 @@ net.to(device)
 # MPC module
 mpc_module = QPUnrolledNetwork(
     device, input_size, n, m, qp_iter, None, True, True,
-    mpc_baseline=get_mpc_baseline_parameters("tank", 1),
-    use_osqp_for_mpc=True,
+    mpc_baseline=get_mpc_baseline_parameters("tank", 10),
+    use_osqp_for_mpc=False,
 )
 
 # Environment
@@ -194,9 +195,9 @@ for i in range(2):
     for j in range(2):
         ax = axes[i, j]
         subscript = 2 * i + j
-        ax.plot([a(xs_mpc[k][subscript]) for k in range(len(xs_mpc))], label="MPC")
-        ax.plot([a(xs_qp[k][subscript]) for k in range(len(xs_qp))], label="QP")
-        ax.plot([a(xs_mlp[k][subscript]) for k in range(len(xs_mlp))], label="MLP")
+        ax.plot([a(xs_mpc[k][subscript]) for k in range(len(xs_mpc))], label="MPC (N=10)")
+        ax.plot([a(xs_qp[k][subscript]) for k in range(len(xs_qp))], label="Compressed (ratio=0.25)")
+        # ax.plot([a(xs_mlp[k][subscript]) for k in range(len(xs_mlp))], label="MLP")
         ax.axhline(y=x_ref[subscript], color='r', linestyle='--', label='Ref')
         ax.legend()
         ax.set_title(f'x_{subscript+1}')

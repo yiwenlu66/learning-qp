@@ -47,6 +47,8 @@ class A2CQPUnrolled(A2CBuilder.Network):
             use_residual_loss=self.use_residual_loss,
             no_b=self.no_b,
             imitate_mpc=self.imitate_mpc,
+            force_feasible=self.force_feasible,
+            feasible_lambda=self.feasible_lambda,
         )
 
         # TODO: exploit structure in value function?
@@ -104,6 +106,8 @@ class A2CQPUnrolled(A2CBuilder.Network):
         self.use_residual_loss = params["custom"]["use_residual_loss"]
         self.no_b = params["custom"]["no_b"]
         self.imitate_mpc = params["custom"]["imitate_mpc"]
+        self.force_feasible = params["custom"]["force_feasible"]
+        self.feasible_lambda = params["custom"]["feasible_lambda"]
 
 class A2CQPUnrolledBuilder(NetworkBuilder):
     def __init__(self, **kwargs):

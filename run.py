@@ -65,6 +65,7 @@ parser.add_argument("--no-obs-normalization", action="store_true")
 parser.add_argument("--no-b", action="store_true")
 parser.add_argument("--imitate-mpc-N", type=int, default=0)
 parser.add_argument("--initialize-from-experiment", type=str, default="")
+parser.add_argument("--force-feasible", action="store_true")
 args = parser.parse_args()
 
 
@@ -146,6 +147,8 @@ if args.qp_unrolled:
         "use_osqp_for_mpc": args.use_osqp_for_mpc,
         "use_residual_loss": args.use_residual_loss,
         "no_b": args.no_b,
+        "force_feasible": args.force_feasible,
+        "feasible_lambda": 10.,
     }
 
 if args.mpc_baseline_N:
