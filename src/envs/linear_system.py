@@ -11,10 +11,23 @@ from icecream import ic
 
 
 class LinearSystem():
-    def __init__(self, A, B, Q, R, sqrt_W, x_min, x_max, u_min, u_max, bs, barrier_thresh, max_steps, u_eq_min=None, u_eq_max=None, device="cuda:0", random_seed=None, quiet=False, keep_stats=False, randomize_std=0., run_name="", **kwargs):
+    def __init__(
+        self, A, B, Q, R, sqrt_W,
+        x_min, x_max, u_min, u_max, bs, barrier_thresh,
+        max_steps,
+        u_eq_min=None, u_eq_max=None,
+        skip_to_steady_state=False,
+        device="cuda:0",
+        random_seed=None,
+        quiet=False,
+        keep_stats=False,
+        randomize_std=0.,
+        run_name="",
+        **kwargs
+    ):
         """
         Initializes the LinearSystem environment with given parameters.
-        
+
         Parameters:
             A (ndarray): System dynamics matrix. Perturbed with standard deviation randomize_std.
             B (ndarray): Input matrix. Perturbed with standard deviation randomize_std.
@@ -30,6 +43,7 @@ class LinearSystem():
             max_steps (int): Maximum number of steps in an episode.
             u_eq_min (ndarray, optional): Lower bound for equilibrium control input.
             u_eq_max (ndarray, optional): Upper bound for equilibrium control input.
+            skip_to_steady_state (bool, optional): Debug option to skip to steady state -- changes the problem to a static problem of optimizing u; side effects include changing max_steps to 1, and ignoring the process noise.
             device (str, optional): Computational device ("cpu" or "cuda").
             random_seed (int, optional): Random seed for reproducibility.
             quiet (bool, optional): Suppresses debug prints when set to True.
@@ -95,6 +109,12 @@ class LinearSystem():
         self.already_on_stats = torch.zeros((bs,), dtype=torch.uint8, device=device)   # Each worker can only contribute once to the statistics, to avoid bias towards shorter episodes
         self.stats = pd.DataFrame(columns=['i', 'x0', 'x_ref', 'A', 'B', 'w0', 'episode_length', 'cumulative_cost', 'constraint_violated'])
         self.quiet = quiet
+
+        if skip_to_steady_state:
+            self.max_steps = 1
+            self.skip_to_steady_state = True
+        else:
+            self.skip_to_steady_state = False
 
     def obs(self):
         """
@@ -167,7 +187,7 @@ class LinearSystem():
         Resets the environments that are marked as 'done', reinitializing their states and references.
 
         Parameters:
-        - need_reset (torch.Tensor, optional): A boolean tensor indicating which environments need to be reset. 
+        - need_reset (torch.Tensor, optional): A boolean tensor indicating which environments need to be reset.
                                             If None, the function will automatically determine this based on self.is_done.
         - x (torch.Tensor, optional): Initial state tensor for the environments that need to be reset.
                                     If None, random initial states are generated within defined bounds.
@@ -177,11 +197,11 @@ class LinearSystem():
                                         If None, no seeding is applied.
 
         Side Effects:
-        - Modifies self.step_count, self.cum_cost, self.x_ref, self.x0, self.x, self.is_done, self.A, and self.B for the 
+        - Modifies self.step_count, self.cum_cost, self.x_ref, self.x0, self.x, self.is_done, self.A, and self.B for the
         environments that are reset.
 
         Notes:
-        - The function expects self.is_done, self.x_min, self.x_max, self.barrier_thresh, self.n, self.m, self.device, 
+        - The function expects self.is_done, self.x_min, self.x_max, self.barrier_thresh, self.n, self.m, self.device,
         self.randomize_std, self.A0, and self.B0 to be pre-defined.
         - Utilizes the conditional_fork_rng context manager for conditional seeding.
         """
@@ -265,10 +285,13 @@ class LinearSystem():
         self.cum_cost += self.cost(self.x - self.x_ref, u)
         w = bmv(self.sqrt_W, torch.randn((self.bs, self.n), generator=self.rng_process, device=self.device))
         self.w0[self.step_count == 0, :] = w[self.step_count == 0, :]
-        self.x = bmv(self.A, self.x) + bmv(self.B, u) + w
+        if not self.skip_to_steady_state:
+            self.x = bmv(self.A, self.x) + bmv(self.B, u) + w
+        else:
+            self.x = bsolve(torch.eye(self.n, device=self.device).unsqueeze(0) - self.A, bmv(self.B, u))
         self.step_count += 1
-        self.is_done[torch.logical_not(self.check_in_bound()).nonzero()] = 1   # 1 for failure
         self.is_done[self.step_count >= self.max_steps] = 2  # 2 for timeout
+        self.is_done[torch.logical_not(self.check_in_bound()).nonzero()] = 1   # 1 for failure
         if self.keep_stats:
             done_indices = torch.nonzero(self.is_done.to(dtype=torch.bool) & torch.logical_not(self.already_on_stats), as_tuple=False)
             for i in done_indices:

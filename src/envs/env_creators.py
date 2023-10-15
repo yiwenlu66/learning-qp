@@ -14,7 +14,7 @@ sys_param = {
         ]),
         "B": np.array([
             [0.825822,    0.0101995],
-            [0.00512673,  0.624648], 
+            [0.00512673,  0.624648],
             [0.0,         0.468317],
             [0.307042,    0.0],
         ]),
@@ -56,7 +56,7 @@ env_creators = {
         x_min=sys_param["tank"]["x_min"] * np.ones(4),
         x_max=sys_param["tank"]["x_max"] * np.ones(4),
         u_min=sys_param["tank"]["u_min"] * np.ones(2),
-        u_max=sys_param["tank"]["u_max"] * np.ones(2),
+        u_max=sys_param["tank"]["u_max"] * np.ones(2) if not kwargs.get("skip_to_steady_state", False) else 1.0 * np.ones(2),
         u_eq_min=sys_param["tank"]["u_eq_min"] * np.ones(2),
         u_eq_max=sys_param["tank"]["u_eq_max"] * np.ones(2),
         barrier_thresh=1.,

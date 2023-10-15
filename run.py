@@ -66,6 +66,8 @@ parser.add_argument("--no-b", action="store_true")
 parser.add_argument("--imitate-mpc-N", type=int, default=0)
 parser.add_argument("--initialize-from-experiment", type=str, default="")
 parser.add_argument("--force-feasible", action="store_true")
+parser.add_argument("--skip-to-steady-state", action="store_true")
+parser.add_argument("--lr-schedule", type=str, default="adaptive")
 args = parser.parse_args()
 
 
@@ -89,6 +91,7 @@ default_env_config = {
     "run_name": args.run_name or args.exp_name,
     "exp_name": args.exp_name,
     "randomize": args.randomize,
+    "skip_to_steady_state": args.skip_to_steady_state,
 }
 
 blacklist_keys = lambda d, blacklist: {k: d[k] for k in d if not (k in blacklist)}
@@ -123,6 +126,7 @@ runner_config["params"]["network"]["mlp"]["units"] = [args.mlp_size_last * i for
 runner_config["params"]["config"]["save_frequency"] = args.save_freq
 runner_config["params"]["config"]["device"] = args.device
 runner_config["params"]["network"].pop("rnn")
+runner_config["params"]["lr_schedule"] = args.lr_schedule
 if args.no_obs_normalization:
     runner_config["params"]["config"]["normalize_input"] = False
 
