@@ -3,6 +3,24 @@ from .linear_system import LinearSystem
 from .cartpole import CartPole
 
 sys_param = {
+    "double_integrator": {
+        "n": 2,
+        "m": 1,
+        "A": np.array([
+            [1.0, 1.0],
+            [0.0, 1.0],
+        ]),
+        "B": np.array([
+            [0.0],
+            [1.0],
+        ]),
+        "Q": np.eye(2),
+        "R": np.array([[100.0]]),
+        "x_min": -5.,
+        "x_max": 5.,
+        "u_min": -0.5,
+        "u_max": 0.5,
+    },
     "tank": {
         "n": 4,
         "m": 2,
@@ -47,6 +65,21 @@ sys_param = {
 }
 
 env_creators = {
+    "double_integrator": lambda **kwargs: LinearSystem(
+        A=sys_param["double_integrator"]["A"],
+        B=sys_param["double_integrator"]["B"],
+        Q=sys_param["double_integrator"]["Q"],
+        R=sys_param["double_integrator"]["R"],
+        sqrt_W=kwargs["noise_level"] * np.eye(2),
+        x_min=sys_param["double_integrator"]["x_min"] * np.ones(2),
+        x_max=sys_param["double_integrator"]["x_max"] * np.ones(2),
+        u_min=sys_param["double_integrator"]["u_min"] * np.ones(1),
+        u_max=sys_param["double_integrator"]["u_max"] * np.ones(1),
+        barrier_thresh=0.1,
+        randomize_std=(0.001 if kwargs["randomize"] else 0.),
+        stabilization_only=True,
+        **kwargs
+    ),
     "tank": lambda **kwargs: LinearSystem(
         A=sys_param["tank"]["A"],
         B=sys_param["tank"]["B"],

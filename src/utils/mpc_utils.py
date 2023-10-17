@@ -1,5 +1,9 @@
 import torch
 from .torch_utils import make_psd, bmv, kron
+import numpy as np
+from scipy.linalg import kron as sp_kron
+from numpy.linalg import matrix_power as np_matrix_power
+
 
 def generate_random_problem(bs, n, m, device):
     P_params = -1 + 2 * torch.rand((bs, n * (n + 1) // 2), device=device)
@@ -83,5 +87,83 @@ def mpc2qp(n_mpc, m_mpc, N, A, B, Q, R, x_min, x_max, u_min, u_max, x0, x_ref, n
         H_nom = H @ Alpha    # (m, n)
         b_nom = (H @ Beta).unsqueeze(0) + b    # (bs, m)
         P, q, H, b = P_nom, q_nom, H_nom, b_nom
+
+    return n, m, P, q, H, b
+
+
+def mpc2qp_np(n_mpc, m_mpc, N, A, B, Q, R, x_min, x_max, u_min, u_max, x0, x_ref, normalize=False):
+    """
+    Converts Model Predictive Control (MPC) problem parameters into Quadratic Programming (QP) form using NumPy.
+
+    Parameters:
+    - n_mpc (int): Dimension of the state space.
+    - m_mpc (int): Dimension of the input space.
+    - N (int): Prediction horizon.
+    - A (np.ndarray): State transition matrix, shape (n_mpc, n_mpc).
+    - B (np.ndarray): Control input matrix, shape (n_mpc, m_mpc).
+    - Q (np.ndarray): State cost matrix, shape (n_mpc, n_mpc).
+    - R (np.ndarray): Control cost matrix, shape (m_mpc, m_mpc).
+    - x_min (float): Lower state bounds.
+    - x_max (float): Upper state bounds.
+    - u_min (float): Lower control bounds.
+    - u_max (float): Upper control bounds.
+    - x0 (np.ndarray): Initial state, shape (n_mpc,).
+    - x_ref (np.ndarray): Reference state, shape (n_mpc,).
+    - normalize (bool): Whether to normalize control actions.
+
+    Returns:
+    - n (int): Number of decision variables.
+    - m (int): Number of constraints.
+    - P (np.ndarray): QP cost matrix, shape (n, n).
+    - q (np.ndarray): QP cost vector, shape (n,).
+    - H (np.ndarray): Constraint matrix, shape (m, n).
+    - b (np.ndarray): Constraint bounds, shape (m,).
+
+    Notes:
+    - The function assumes that A, B, Q, R, x0, and x_ref are NumPy arrays.
+    """
+
+    # Compute Ax0 based on state transition matrix and initial state
+    Ax0 = np.hstack([np_matrix_power(A, k + 1) @ x0 for k in range(N)])
+
+    # Number of constraints and decision variables
+    m = 2 * (n_mpc + m_mpc) * N
+    n = m_mpc * N
+
+    # Construct constraint bounds vector
+    b = np.hstack([
+        Ax0 - x_min,
+        x_max - Ax0,
+        -u_min * np.ones(n),
+        u_max * np.ones(n),
+    ])
+
+    # Compute input-state mapping matrix
+    XU = np.zeros((N, n_mpc, N, m_mpc))
+    for k in range(N):
+        for j in range(k + 1):
+            XU[k, :, j, :] = np_matrix_power(A, k - j) @ B
+    XU = XU.reshape(N * n_mpc, N * m_mpc)
+
+    # Compute QP cost vector and matrix
+    q = -2 * XU.T @ sp_kron(np.eye(N), Q) @ (sp_kron(np.ones((N, 1)), x_ref.reshape(-1, 1)) - Ax0.reshape(-1, 1))
+    q = q.squeeze()
+    P = 2 * XU.T @ sp_kron(np.eye(N), Q) @ XU + 2 * sp_kron(np.eye(N), R)
+
+    # Compute constraint matrix
+    H = np.vstack([XU, -XU, np.eye(n), -np.eye(n)])
+
+    if normalize:
+        # Normalization parameters
+        alpha = (u_max - u_min) / 2 * np.ones(m_mpc)
+        beta = (u_max + u_min) / 2 * np.ones(m_mpc)
+        Alpha = np.diag(alpha.repeat(N))
+        Beta = beta.repeat(N)
+
+        # Update QP parameters with normalized versions
+        P = Alpha @ P @ Alpha
+        q = Alpha @ (q + P @ Beta)
+        H = H @ Alpha
+        b = H @ Beta + b
 
     return n, m, P, q, H, b

@@ -17,6 +17,7 @@ class LinearSystem():
         max_steps,
         u_eq_min=None, u_eq_max=None,
         skip_to_steady_state=False,
+        stabilization_only=False,
         device="cuda:0",
         random_seed=None,
         quiet=False,
@@ -44,6 +45,7 @@ class LinearSystem():
             u_eq_min (ndarray, optional): Lower bound for equilibrium control input.
             u_eq_max (ndarray, optional): Upper bound for equilibrium control input.
             skip_to_steady_state (bool, optional): Debug option to skip to steady state -- changes the problem to a static problem of optimizing u; side effects include changing max_steps to 1, and ignoring the process noise.
+            stabilization_only (bool, optional): Option to exclude reference and only do stabilization around the origin. When True, the observation will be the current state; when False, the observation will be current state & reference.
             device (str, optional): Computational device ("cpu" or "cuda").
             random_seed (int, optional): Random seed for reproducibility.
             quiet (bool, optional): Suppresses debug prints when set to True.
@@ -90,10 +92,11 @@ class LinearSystem():
         self.bs = bs
         self.barrier_thresh = barrier_thresh
         self.max_steps = max_steps
-        self.num_states = self.n
+        self.stabilization_only = stabilization_only
+        self.num_states = self.n if stabilization_only else 2 * self.n
         self.num_actions = self.m
-        self.observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(2 * self.n,))
-        self.action_space = gym.spaces.Box(low=u_min, high=u_max, shape=(self.m,))
+        self.observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(self.num_states,))
+        self.action_space = gym.spaces.Box(low=u_min, high=u_max, shape=(self.num_actions,))
         self.state_space = self.observation_space
         self.x = 0.5 * (self.x_max + self.x_min) * torch.ones((bs, self.n), device=device)
         self.x0 = 0.5 * (self.x_max + self.x_min) * torch.ones((bs, self.n), device=device)
@@ -120,7 +123,10 @@ class LinearSystem():
         """
         Returns the current observation, which is a concatenation of the current state and reference state.
         """
-        return torch.cat([self.x, self.x_ref], -1)
+        if not self.stabilization_only:
+            return torch.cat([self.x, self.x_ref], -1)
+        else:
+            return self.x
 
     def cost(self, x, u):
         """
@@ -132,16 +138,19 @@ class LinearSystem():
         """
         Computes the reward based on the current state, control input, and various coefficients.
         """
-        rew_main = -self.cost(self.x - self.x_ref, self.u)
+        cost = self.cost(self.x - self.x_ref, self.u)
+        rew_main = -cost
+        rew_steady = torch.exp(-cost)
         rew_state_bar = torch.sum(torch.log(((self.x_max - self.x) / self.barrier_thresh).clamp(1e-8, 1.)) + torch.log(((self.x - self.x_min) / self.barrier_thresh).clamp(1e-8, 1.)), dim=-1)
         rew_done = -1.0 * (self.is_done == 1)
 
         coef_const = 0.
         coef_main = 1.
+        coef_steady = 100.
         coef_bar = 0.
         coef_done = 100000.
 
-        rew_total = coef_const + coef_main * rew_main + coef_bar * rew_state_bar + coef_done * rew_done
+        rew_total = coef_const + coef_main * rew_main + coef_steady * rew_steady + coef_bar * rew_state_bar + coef_done * rew_done
 
         if not self.quiet:
             avg_rew_main, avg_rew_state_bar, avg_rew_done, avg_rew_total = coef_main * rew_main.mean().item(), coef_bar * rew_state_bar.mean().item(), coef_done * rew_done.mean().item(), rew_total.mean().item()
@@ -176,10 +185,13 @@ class LinearSystem():
         """
         Generates a reference state based on the control input bounds and nominal system dynamics.
         """
-        u_ref = self.u_eq_min + (self.u_eq_max - self.u_eq_min) * torch.rand((size, self.m), generator=self.rng_initial, device=self.device)
-        x_ref = bsolve(torch.eye(self.n, device=self.device).unsqueeze(0) - self.A0, bmv(self.B0, u_ref))
-        x_ref += self.barrier_thresh * torch.randn((size, self.n), generator=self.rng_initial, device=self.device)
-        x_ref = x_ref.clamp(self.x_min + self.barrier_thresh, self.x_max - self.barrier_thresh)
+        if not self.stabilization_only:
+            u_ref = self.u_eq_min + (self.u_eq_max - self.u_eq_min) * torch.rand((size, self.m), generator=self.rng_initial, device=self.device)
+            x_ref = bsolve(torch.eye(self.n, device=self.device).unsqueeze(0) - self.A0, bmv(self.B0, u_ref))
+            x_ref += self.barrier_thresh * torch.randn((size, self.n), generator=self.rng_initial, device=self.device)
+            x_ref = x_ref.clamp(self.x_min + self.barrier_thresh, self.x_max - self.barrier_thresh)
+        else:
+            return torch.zeros((size, self.n), device=self.device)
         return x_ref
 
     def reset_done_envs(self, need_reset=None, x=None, x_ref=None, randomize_seed=None):
