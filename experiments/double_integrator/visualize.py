@@ -136,8 +136,9 @@ ax.legend()
 
 
 # %% Case study
+from matplotlib.patches import Rectangle
 
-def get_trajectory(controller, x0, max_steps=100):
+def get_trajectory(controller, x0, max_steps=200):
     g = get_cl_dynamics(controller)
     x = x0
     xs = [x]
@@ -153,27 +154,34 @@ def get_trajectory(controller, x0, max_steps=100):
     return np.array(xs), average_cost
 
 
-def plot_comparison(x0):
+def plot_comparison(x0, mark='^'):
     traj_mpc, cost_mpc = get_trajectory(mpc_controller, x0)
     traj_learned, cost_learned = get_trajectory(learned_controller, x0)
 
     fig, ax = plt.subplots()
-    # ax.fill(MCI[:, 0], MCI[:, 1],
-    #     alpha=0.3, label='Maximal Control Invariant Set', color='r')
+    ax.fill(MCI[:, 0], MCI[:, 1],
+        alpha=0.1, label='Maximal Control Invariant Set', color='r')
     ax.fill(pis_mpc[:, 0], pis_mpc[:, 1],
         alpha=0.3, label='Positive invariant set (MPC)', color='g')
     ax.fill(pis_learned[:, 0], pis_learned[:, 1],
         alpha=0.3, label='Positive invariant set (Learned)', color='b')
-    ax.plot(traj_mpc[:, 0], traj_mpc[:, 1], color='g', label=f"Trajectory (MPC) - Avg. Cost: {cost_mpc:.2f}")
-    ax.plot(traj_learned[:, 0], traj_learned[:, 1], color='b', label="Trajectory (Learned) - Avg. Cost: {:.2f}".format(cost_learned))
+    ax.plot(traj_mpc[:, 0], traj_mpc[:, 1], f'-{mark}', color='g', label=f"Trajectory (MPC) - Avg. Cost: {cost_mpc:.2f}")
+    ax.plot(traj_learned[:, 0], traj_learned[:, 1], f'-{mark}', color='b', label="Trajectory (Learned) - Avg. Cost: {:.2f}".format(cost_learned))
     ax.grid()
     ax.set_xlabel("$x_1$")
     ax.set_ylabel("$x_2$")
+
+    # Plot the box constraint
+    rect = Rectangle((x_min[0], x_min[1]), x_max[0] - x_min[0], x_max[1] - x_min[1], linewidth=1, edgecolor='r', facecolor='none')
+    ax.add_patch(rect)
+    ax.set_ylim(-3, 3)
 
     ax.legend()
     return fig, ax
 
 # %%
-plot_comparison(np.array([-4, 0.5]))
+fig, ax = plot_comparison(np.array([-4, 0.2]), '^')
+# ax.set_xlim(-1, 1)
+# ax.set_ylim(-0.2, 0.2)
 
 # %%
