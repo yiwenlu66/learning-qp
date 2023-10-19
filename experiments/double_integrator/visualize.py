@@ -69,7 +69,7 @@ device = "cuda:0"
 n_qp = 3
 m_qp = 9
 qp_iter = 10
-net = QPUnrolledNetwork(device, 2, n_qp, m_qp, qp_iter, None, True, True, force_feasible=True)
+net = QPUnrolledNetwork(device, 2, n_qp, m_qp, qp_iter, None, True, True, force_feasible=True, no_q_bias=True, no_b=True)
 exp_name = "default"
 checkpoint_path = f"runs/double_integrator_{exp_name}/nn/double_integrator.pth"
 policy_net_state_dict, running_mean, running_std = get_state_dict(checkpoint_path)

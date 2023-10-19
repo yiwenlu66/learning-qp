@@ -22,6 +22,8 @@ python ../../run.py $TRAIN_OR_TEST double_integrator \
             --no-obs-normalization \
             --use-residual-loss \
             --force-feasible \
+            --no-q-bias \
+            --no-b \
             --exp-name default
 
 # python ../../run.py $TRAIN_OR_TEST double_integrator \

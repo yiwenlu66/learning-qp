@@ -52,6 +52,7 @@ parser.add_argument("--m-qp", type=int, default=4)
 parser.add_argument("--qp-iter", type=int, default=10)
 parser.add_argument("--shared-PH", action="store_true")
 parser.add_argument("--affine-qb", action="store_true")
+parser.add_argument("--no-q-bias", action="store_true")
 parser.add_argument("--warm-start", action="store_true")
 parser.add_argument("--ws-loss-coef", type=float, default=10.)
 parser.add_argument("--ws-update-rate", type=float, default=0.1)
@@ -142,6 +143,7 @@ if args.qp_unrolled:
         "qp_iter": args.qp_iter,
         "shared_PH": args.shared_PH,
         "affine_qb": args.affine_qb,
+        "no_q_bias": args.no_q_bias,
         "use_warm_starter": args.warm_start,
         "train_warm_starter": args.warm_start and args.train_or_test == "train",
         "ws_loss_coef": args.ws_loss_coef,

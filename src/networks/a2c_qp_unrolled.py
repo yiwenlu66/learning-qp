@@ -16,12 +16,12 @@ class A2CQPUnrolled(A2CBuilder.Network):
 
         if self.separate:
             raise NotImplementedError()
-        
+
         def mlp_builder(input_size, output_size):
             policy_mlp_args = {
-                'input_size' : input_size, 
-                'units' : self.params["mlp"]["units"] + [output_size], 
-                'activation' : self.activation, 
+                'input_size' : input_size,
+                'units' : self.params["mlp"]["units"] + [output_size],
+                'activation' : self.activation,
                 'norm_func_name' : self.normalization,
                 'dense_func' : torch.nn.Linear,
                 'd2rl' : self.is_d2rl,
@@ -38,6 +38,7 @@ class A2CQPUnrolled(A2CBuilder.Network):
             mlp_builder,
             shared_PH=self.shared_PH,
             affine_qb=self.affine_qb,
+            no_q_bias=self.no_q_bias,
             use_warm_starter=self.use_warm_starter,
             train_warm_starter=self.train_warm_starter,
             ws_loss_coef=self.ws_loss_coef,
@@ -53,9 +54,9 @@ class A2CQPUnrolled(A2CBuilder.Network):
 
         # TODO: exploit structure in value function?
         value_mlp_args = {
-            'input_size' : self.n_obs, 
-            'units' : self.params["mlp"]["units"] + [self.value_size], 
-            'activation' : self.activation, 
+            'input_size' : self.n_obs,
+            'units' : self.params["mlp"]["units"] + [self.value_size],
+            'activation' : self.activation,
             'norm_func_name' : self.normalization,
             'dense_func' : torch.nn.Linear,
             'd2rl' : self.is_d2rl,
@@ -72,7 +73,7 @@ class A2CQPUnrolled(A2CBuilder.Network):
             if isinstance(m, nn.Linear):
                 mlp_init(m.weight)
                 if getattr(m, "bias", None) is not None:
-                    torch.nn.init.zeros_(m.bias)    
+                    torch.nn.init.zeros_(m.bias)
 
         sigma_init(self.sigma)
 
@@ -97,6 +98,7 @@ class A2CQPUnrolled(A2CBuilder.Network):
         self.qp_iter = params["custom"]["qp_iter"]
         self.shared_PH = params["custom"]["shared_PH"]
         self.affine_qb = params["custom"]["affine_qb"]
+        self.no_q_bias = params["custom"]["no_q_bias"]
         self.use_warm_starter = params["custom"]["use_warm_starter"]
         self.train_warm_starter = params["custom"]["train_warm_starter"]
         self.ws_loss_coef = params["custom"]["ws_loss_coef"]

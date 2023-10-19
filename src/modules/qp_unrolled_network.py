@@ -23,6 +23,7 @@ class QPUnrolledNetwork(nn.Module):
         self, device, input_size, n_qp, m_qp, qp_iter, mlp_builder,
         shared_PH=False,
         affine_qb=False,
+        no_q_bias=False,
         use_warm_starter=False,
         train_warm_starter=False,
         ws_loss_coef=1.,
@@ -37,11 +38,13 @@ class QPUnrolledNetwork(nn.Module):
         feasible_lambda=10,
     ):
         """mlp_builder is a function mapping (input_size, output_size) to a nn.Sequential object.
-        
+
         If shared_PH == True, P and H are parameters indepedent of input, and q and b are functions of input;
         Otherwise, (P, H, q, b) are all functions of input.
 
         If affine_qb == True, then q and b are restricted to be affine functions of input.
+
+        If no_q_bias == True (only effective when affine_qb=True), then the bias term in q is set to 0, i.e., q = W_q x.
 
         If no_b == True, then the constraint is assumed to be -1 <= Hx <= 1.
 
@@ -66,6 +69,7 @@ class QPUnrolledNetwork(nn.Module):
         self.m_qp = m_qp
         self.qp_iter = qp_iter
 
+        self.no_q_bias = no_q_bias
         self.no_b = no_b
 
         self.n_P_param = n_qp * (n_qp + 1) // 2
@@ -79,14 +83,16 @@ class QPUnrolledNetwork(nn.Module):
             self.P_params = None
             self.H_params = None
         else:
-            self.P_params = nn.Parameter(torch.randn((self.n_P_param,), device=device)) 
-            self.H_params = nn.Parameter(torch.randn((self.n_H_param,), device=device)) 
+            self.P_params = nn.Parameter(torch.randn((self.n_P_param,), device=device))
+            self.H_params = nn.Parameter(torch.randn((self.n_H_param,), device=device))
 
         if not self.affine_qb:
             self.n_mlp_output += (self.n_q_param + self.n_b_param)
-            self.qb_affine_layer = None
+            self.q_affine_layer = None
+            self.b_affine_layer = None
         else:
-            self.qb_affine_layer = nn.Linear(input_size, self.n_q_param + self.n_b_param)
+            self.q_affine_layer = nn.Linear(input_size, self.n_q_param, bias=not self.no_q_bias)
+            self.b_affine_layer = nn.Linear(input_size, self.n_b_param)
 
         if self.n_mlp_output > 0:
             self.mlp = mlp_builder(input_size, self.n_mlp_output)
@@ -191,9 +197,8 @@ class QPUnrolledNetwork(nn.Module):
                 end = start + self.n_b_param
                 b = qp_params[:, start:end]
             else:
-                q_b_params = self.qb_affine_layer(x)
-                q = q_b_params[:, :self.n_q_param]
-                b = q_b_params[:, self.n_q_param:]
+                q = self.q_affine_layer(x)
+                b = self.b_affine_layer(x)
 
             # Reshape P, H vectors into matrices
             Pinv = make_psd(P_params, min_eig=1e-2)
