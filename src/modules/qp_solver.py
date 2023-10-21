@@ -20,21 +20,34 @@ class QPSolver(nn.Module):
             preconditioner=None, warm_starter=None,
             is_warm_starter_trainable=False,
             keep_X=True,
-            no_b=False,
+            symmetric_constraint=False,
+            buffered=False,
         ):
         """
         Initialize the QP solver.
-        
+
         device: PyTorch device
+
         n, m: dimensions of decision variable x and constraint vector b
+
         P, H: Optional matrices that define the QP. If not provided, must be supplied during forward pass.
+
         alpha, beta: Parameters of the PDHG algorithm
+
         preconditioner: Optional preconditioner module
+
         warm_starter: Optional warm start module
+
         is_warm_starter_trainable: Flag for training the warm starter
+
         keep_X: Flag for keeping the primal-dual variable history
-        no_b: Flag for skipping the constraint vector b; when True, the constraint is assumed to be -1 <= Hx <= 1.
-        
+
+        symmetric_constraint: Flag for making the inequality constraint symmetric; when True, the constraint is assumed to be -1 <= Hx + b <= 1, instead of Hx + b >= 0.
+
+        buffered: Flag for indicating whether the problem is modeled with the buffer variable \epsilon. When True, it is assumed that the first (n-1) decision variables are the original x, and the last decision variable is \epsilon; in this case, if symmetric constraint is enabled, then the projection is done as follows:
+        1. Project epsilon to [0, +\infty)
+        2. Project H_x x + b_x to [-1 - eps, 1 + eps]
+
         Note: Assumes that H is full column rank when m >= n, and full row rank otherwise.
         """
         super().__init__()
@@ -54,7 +67,9 @@ class QPSolver(nn.Module):
         self.warm_starter = warm_starter
         self.is_warm_starter_trainable = is_warm_starter_trainable
         self.keep_X = keep_X
-        self.no_b = no_b
+        self.symmetric_constraint = symmetric_constraint
+        self.buffered = buffered
+
         self.bIm = torch.eye(m, device=device).unsqueeze(0)
         self.X0 = torch.zeros((1, 2 * self.m), device=self.device)
         self.get_sol = self.get_sol_transform(self.bP, self.bH) if self.bP is not None and self.bH is not None else None
@@ -62,10 +77,10 @@ class QPSolver(nn.Module):
     def get_sol_transform(self, H, bP=None, bPinv=None):
         """
         Computes the transformation from dual variable z to primal variable x.
-        
+
         H: Constraint matrix
         bP, bPinv: Either the matrix P or its inverse. Exactly one must be specified. Specifying Pinv can reduce number of linear solves.
-        
+
         Returns: Function that performs the transformation
         """
         bH = self.bH if self.bH is not None else H
@@ -86,10 +101,10 @@ class QPSolver(nn.Module):
     def get_AB(self, q, b, H=None, P=None, Pinv=None):
         """
         Computes matrices A and B used in the PDHG iterations.
-        
+
         q, b: Coefficients in the objective and constraint
         H, P, Pinv: Matrix H, and (either the matrix P or its inverse). Must be specified if not initialized. Specifying Pinv can reduce number of linear solves.
-        
+
         Returns: Matrices A and B
         """
         # q: (bs, n), b: (bs, m)
@@ -128,7 +143,7 @@ class QPSolver(nn.Module):
         u: Dual variable
         q, b: Coefficients in the objective and constraint
         P, H, Pinv: Optional matrices defining the QP. Must be provided if not initialized.
-        
+
         Returns: Primal and dual residuals
         """
         # Determine effective P and H matrices
@@ -136,7 +151,7 @@ class QPSolver(nn.Module):
             eff_P = self.bP
         else:
             eff_P = P if P is not None else Pinv
-        
+
         if self.bH is not None:
             eff_H = self.bH
         else:
@@ -163,15 +178,13 @@ class QPSolver(nn.Module):
     ):
         """
         Solves the QP problem using PDHG.
-        
+
         q, b: Coefficients in the objective and constraint
         P, H, Pinv: Optional matrices defining the QP, i.e., matrix H, and (either the matrix P or its inverse). Must be provided if not initialized. Using Pinv is more efficient in learned setting.
         iters: Number of PDHG iterations
         only_last_primal: Flag for returning only the last primal solution (when True, primal_sols is (bs, 1, n); otherwise (bs, iters + 1, n))
         return_residuals: Flag for returning residuals
 
-        When self.no_b is True, the argument b is ignored.
-        
         Returns: History of primal-dual variables, primal solutions, and optionally residuals of the last iteration
         """
         # q: (bs, n), b: (bs, m)
@@ -192,32 +205,40 @@ class QPSolver(nn.Module):
         if not only_last_primal:
             primal_sols[:, 0, :] = get_sol(self.X0[:, self.m:], q, b)
         X = self.X0
-        b_ = b if not self.no_b else torch.zeros((bs, self.m), device=self.device)
-        A, B = self.get_AB(q, b_, H, P, Pinv)
+        A, B = self.get_AB(q, b, H, P, Pinv)
         for k in range(1, iters + 1):
             # PDHG update
             X = bmv(A, X) + B   # (bs, 2m)
-            if not self.no_b:
+            if not self.symmetric_constraint:
                 # Project to [0, +\infty)
                 F.relu(X[:, self.m:], inplace=True)
             else:
-                # Project to [-1, 1]
-                projected = torch.clamp(X[:, self.m:], -1, 1)
-                X = torch.cat((X[:, :self.m], projected), dim=1)
+                if not self.buffered:
+                    # Project to [-1, 1]
+                    projected = torch.clamp(X[:, self.m:], -1, 1)
+                    X = torch.cat((X[:, :self.m], projected), dim=1)
+                else:
+                    # Hybrid projection: epsilon to [0, +\infty), the rest decision variables to [-1 - eps, 1 + eps]
+                    # Project epsilon
+                    F.relu(X[:, -1:], inplace=True)
+                    # Project the rest variables
+                    projected = torch.clamp(X[:, self.m:-1], -1 - X[:, -1:], 1 + X[:, -1:])
+                    # Concatenate
+                    X = torch.cat((X[:, :self.m], projected, X[:, -1:]), dim=1)
             if self.keep_X:
                 Xs[:, k, :] = X.clone()
             if not only_last_primal:
-                primal_sols[:, k, :] = get_sol(X[:, self.m:], q, b_)
+                primal_sols[:, k, :] = get_sol(X[:, self.m:], q, b)
 
         if only_last_primal:
-            primal_sols[:, 0, :] = get_sol(X[:, self.m:], q, b_)
+            primal_sols[:, 0, :] = get_sol(X[:, self.m:], q, b)
 
         # Compute residuals for the last step if the flag is set
         if return_residuals:
             x_last = primal_sols[:, -1, :]
             z_last = Xs[:, -1, self.m:]
             u_last = Xs[:, -1, :self.m]
-            primal_residual, dual_residual = self.compute_residuals(x_last, z_last, u_last, q, b_, P, H, Pinv)
+            primal_residual, dual_residual = self.compute_residuals(x_last, z_last, u_last, q, b, P, H, Pinv)
             return Xs, primal_sols, (primal_residual, dual_residual)
         else:
             return Xs, primal_sols

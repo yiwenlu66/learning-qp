@@ -38,7 +38,8 @@ class A2CQPUnrolled(A2CBuilder.Network):
             mlp_builder,
             shared_PH=self.shared_PH,
             affine_qb=self.affine_qb,
-            no_q_bias=self.no_q_bias,
+            symmetric=self.symmetric,
+            no_b=self.no_b,
             use_warm_starter=self.use_warm_starter,
             train_warm_starter=self.train_warm_starter,
             ws_loss_coef=self.ws_loss_coef,
@@ -46,7 +47,6 @@ class A2CQPUnrolled(A2CBuilder.Network):
             mpc_baseline=self.mpc_baseline,
             use_osqp_for_mpc=self.use_osqp_for_mpc,
             use_residual_loss=self.use_residual_loss,
-            no_b=self.no_b,
             imitate_mpc=self.imitate_mpc,
             force_feasible=self.force_feasible,
             feasible_lambda=self.feasible_lambda,
@@ -98,7 +98,8 @@ class A2CQPUnrolled(A2CBuilder.Network):
         self.qp_iter = params["custom"]["qp_iter"]
         self.shared_PH = params["custom"]["shared_PH"]
         self.affine_qb = params["custom"]["affine_qb"]
-        self.no_q_bias = params["custom"]["no_q_bias"]
+        self.symmetric = params["custom"]["symmetric"]
+        self.no_b = params["custom"]["no_b"]
         self.use_warm_starter = params["custom"]["use_warm_starter"]
         self.train_warm_starter = params["custom"]["train_warm_starter"]
         self.ws_loss_coef = params["custom"]["ws_loss_coef"]
@@ -106,7 +107,6 @@ class A2CQPUnrolled(A2CBuilder.Network):
         self.mpc_baseline = params["custom"]["mpc_baseline"]
         self.use_osqp_for_mpc = params["custom"]["use_osqp_for_mpc"]
         self.use_residual_loss = params["custom"]["use_residual_loss"]
-        self.no_b = params["custom"]["no_b"]
         self.imitate_mpc = params["custom"]["imitate_mpc"]
         self.force_feasible = params["custom"]["force_feasible"]
         self.feasible_lambda = params["custom"]["feasible_lambda"]
