@@ -172,4 +172,4 @@ experiments/tank/*.csv
 experiments/cartpole/test_results/
 experiments/cartpole/*.csv
 
-
+experiments/double_integrator/*.npz
