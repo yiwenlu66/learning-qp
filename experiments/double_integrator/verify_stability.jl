@@ -10,7 +10,7 @@ b_MCI = data["b_MCI"]
 H = data["H"]
 A = data["A"]
 B = data["B"]
-m_mci, n_sys = size(G)
+m_mci, n_sys = size(A_MCI)
 n_qp = size(P, 1)
 m_qp = size(H, 1)
 m_sys = size(B, 2)
@@ -18,7 +18,7 @@ m_sys = size(B, 2)
 norm_factor = 0.5
 
 ## Define the candidate invariant set to be tested
-relax = 1
+relax = 0.2
 G = A_MCI
 c = b_MCI .- relax
 
@@ -32,9 +32,9 @@ using Ipopt
 blmodel = BilevelModel(Ipopt.Optimizer; mode = BilevelJuMP.ProductMode(1e-9))
 
 # Upper level
-@variable(Upper(blmodel), x[1:n_sys])
+@variable(Upper(blmodel), x[1:n_sys], start = 1)
 @variable(Upper(blmodel), λ[1:m_mci] >= 0)
-@variable(Lower(blmodel), -1 <= u[1:n_qp] <= 1)
+@variable(Lower(blmodel), u[1:n_qp])
 @constraint(Upper(blmodel), sum(λ) == 1)
 @constraint(Upper(blmodel), G * x .<= c)
 @objective(Upper(blmodel), Min, -λ' * (G * (A * x + norm_factor * B * u[1:m_sys]) - c))
@@ -43,16 +43,21 @@ blmodel = BilevelModel(Ipopt.Optimizer; mode = BilevelJuMP.ProductMode(1e-9))
 # Lower level
 @constraint(Lower(blmodel), H*u .<= 1.)
 @constraint(Lower(blmodel), -1. .<= H*u)
+@constraint(Lower(blmodel), u[1:m_sys] .<= 1.)
+@constraint(Lower(blmodel), -1. .<= u[1:m_sys])
 @objective(Lower(blmodel), Min, 0.5 * u' * P * u + x' * W_q' * u)
 
-##
 # Solve the bilevel problem
 optimize!(blmodel)
 
 # Extract results
-optimal_value = objective_value(blmodel)
-@show optimal_value
+optimal_value = objective_value(blmodel)   # Is it correct?
+# @show optimal_value
 @show value.(x)
+@show value.(u)
+@show value.(λ)
+optimal_value = -value.(λ)' * (G * (A * value.(x) + norm_factor * B * value.(u)[1:m_sys]) - c)
+@show optimal_value
 
 ## Visualize
 using Polyhedra, CDDLib, Plots, Statistics
@@ -83,13 +88,12 @@ function plot_polytope(A, b, fig, label)
     fig
 end
 
-##
 fig = Plots.plot()
 plot_polytope(A_MCI, b_MCI, fig, "MCI")
 plot_polytope(G, c, fig, "Verified")
 Plots.scatter!(fig, [value.(x)[1]], [value.(x)[2]], label = "Worst case", color = "green")
 
-## Try SDP Lower bound
+## Try SDP Lower bound with Lagrangian relaxation
 using JuMP, SCS
 using LinearAlgebra
 
@@ -152,4 +156,176 @@ end
 # Solve the problem
 optimize!(model)
 
+# It will be infeasible
+
+## Formulate nonconvex QCQP and try solving using local solver
+
+using JuMP, Ipopt
+
+model = Model(Ipopt.Optimizer)
+
+@variable(model, x[1:n_sys], start = 1)
+@variable(model, λ[1:m_mci] >= 0)
+@variable(model, u[1:n_qp])
+@variable(model, μ1[1:m_qp] >= 0)
+@variable(model, μ2[1:m_qp] >= 0)
+@variable(model, μ3[1:m_sys] >= 0)
+@variable(model, μ4[1:m_sys] >= 0)
+
+p = -λ' * (G * (A * x + norm_factor * B * u[1:m_sys]) - c)
+@NLobjective(model, Min, p)
+@constraint(model, G * x .<= c)
+@constraint(model, sum(λ) == 1)
+@constraint(model, P * u + W_q * x + H' * (μ1 - μ2) .== 0)
+@constraint(model, H * u .<= 1)
+@constraint(model, -1 .<= H * u)
+@constraint(model, u[1:m_sys] .<= 1)
+@constraint(model, -1 .<= u[1:m_sys])
+@constraint(model, μ1' * (H * u .- 1) == 0)
+@constraint(model, μ2' * (-H * u .- 1) == 0)
+@constraint(model, μ3' * (u[1:m_sys] .- 1) == 0)
+@constraint(model, μ4' * (-u[1:m_sys] .- 1) == 0)
+optimize!(model)
+# @show objective_value(model)
+@show value.(x)
+@show value.(u)
+@show value.(λ)
+optimal_value = -value.(λ)' * (G * (A * value.(x) + norm_factor * B * value.(u)[1:m_sys]) - c)
+@show optimal_value
+
+## Try lower bound with SOS solver
+
+using DynamicPolynomials, SumOfSquares
+# import SCS
+# scs = SCS.Optimizer
+import MosekTools
+mosek = MosekTools.Optimizer
+import Dualization
+# dual_scs = Dualization.dual_optimizer(scs)
+# model = SOSModel(dual_scs)
+dual_mosek = Dualization.dual_optimizer(mosek)
+model = SOSModel(dual_mosek)
+
+@polyvar x[1:n_sys]
+@polyvar λ[1:m_mci]
+@polyvar u[1:n_qp]
+@polyvar μ1[1:m_qp]
+@polyvar μ2[1:m_qp]
+@polyvar μ3[1:m_sys]
+@polyvar μ4[1:m_sys]
+
+p = -λ' * (G * (A * x + norm_factor * B * u[1:m_sys]) - c)
+S = BasicSemialgebraicSet{Float64,Polynomial{true,Float64}}()
+
+invariance_constraint = - (G * x - c)
+for i in 1:m_mci
+    addinequality!(S, invariance_constraint[i])
+end
+for i in 1:m_mci
+    addinequality!(S, λ[i])
+end
+addequality!(S, sum(λ) - 1)
+stationarity = P * u + W_q * x + H' * (μ1 - μ2)
+for i in 1:n_qp
+    addequality!(S, stationarity[i])
+end
+p_feasibility_1 = -(H * u .- 1)
+for i in 1:m_qp
+    addinequality!(S, p_feasibility_1[i])
+end
+p_feasibility_2 = H * u .+ 1
+for i in 1:m_qp
+    addinequality!(S, p_feasibility_2[i])
+end
+p_feasibility_3 = 1. .- u[1:m_sys]
+for i in 1:m_sys
+    addinequality!(S, p_feasibility_3[i])
+end
+p_feasibility_4 = u[1:m_sys] .+ 1.
+for i in 1:m_sys
+    addinequality!(S, p_feasibility_4[i])
+end
+for i in 1:m_qp
+    addinequality!(S, μ1[i])
+end
+for i in 1:m_qp
+    addinequality!(S, μ2[i])
+end
+for i in 1:m_sys
+    addinequality!(S, μ3[i])
+end
+for i in 1:m_sys
+    addinequality!(S, μ4[i])
+end
+addequality!(S, μ1' * (H * u .- 1))
+addequality!(S, μ2' * (-H * u .- 1))
+addequality!(S, μ3' * (u[1:m_sys] .- 1))
+addequality!(S, μ4' * (-u[1:m_sys] .- 1))
+
+@variable(model, σ >= 0)
+@objective(model, Max, σ)
+@constraint(model, p >= σ, domain = S, maxdegree = 3)
+optimize!(model)
+@show solution_summary(model)
+@show objective_value(model)
+
+## Some toy examples that exemplify the solver usage
+
+##
+using DynamicPolynomials, SumOfSquares
+import MosekTools
+mosek = MosekTools.Optimizer
+import Dualization
+dual_mosek = Dualization.dual_optimizer(mosek)
+
+# Create JuMP model
+model = SOSModel(dual_mosek)
+
+@polyvar x y
+p = x * y
+@variable(model, σ)
+@objective(model, Max, σ)
+S = @set x + y <= 1 && x - y <= 1 && -x + y <= 1 && -x - y <= 1
+# @constraint(model, x + y <= 1)
+# @constraint(model, x - y <= 1)
+# @constraint(model, -x + y <= 1)
+# @constraint(model, -x - y <= 1)
+@constraint(model, p >= σ, domain = S, maxdegree = 3)
+optimize!(model)
+solution_summary(model)
+
+##
+using DynamicPolynomials
+@polyvar x y
+p = x^3 - x^2 + 2x*y -y^2 + y^3
+using SumOfSquares
+S = @set x >= 0 && y >= 0 && x + y >= 1
+import Ipopt
+model = Model(Ipopt.Optimizer)
+@variable(model, a >= 0)
+@variable(model, b >= 0)
+@constraint(model, a + b >= 1)
+@NLobjective(model, Min, a^3 - a^2 + 2a*b - b^2 + b^3)
+optimize!(model)
+solution_summary(model)
+
+##
+import MosekTools
+mosek = MosekTools.Optimizer
+import Dualization
+dual_mosek = Dualization.dual_optimizer(mosek)
+model = SOSModel(dual_mosek)
+@variable(model, α)
+@objective(model, Max, α)
+@constraint(model, c3, p >= α, domain = S)
+optimize!(model)
+solution_summary(model)
+
+##
+model = SOSModel(dual_mosek)
+@variable(model, α)
+@objective(model, Max, α)
+@constraint(model, c4, p >= α, domain = S, maxdegree = 4)
+optimize!(model)
+solution_summary(model)
 
