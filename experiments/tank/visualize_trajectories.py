@@ -3,7 +3,11 @@ import numpy as np
 
 # # Case where MPC is better
 x0 = np.array([10., 10., 10., 10.])
-x_ref = np.array([19, 19, 2.4, 2.4])   
+# x_ref = np.array([19, 19, 2., 2.])
+x_ref = np.array([13, 17, 3, 2.])
+
+x0 = np.array([ 1.5112903, 5.738173, 10.417226,  4.5608387])
+x_ref = np.array([1.1293532, 1.9881264, 1. ,      1.        ])
 
 # Case where MPC fails
 # x0 = np.array([ 5.4963946, 10.947876,   1.034516,  18.08066  ])
@@ -195,8 +199,8 @@ for i in range(2):
     for j in range(2):
         ax = axes[i, j]
         subscript = 2 * i + j
-        ax.plot([a(xs_mpc[k][subscript]) for k in range(len(xs_mpc))], label="MPC (N=10)")
-        ax.plot([a(xs_qp[k][subscript]) for k in range(len(xs_qp))], label="Compressed (ratio=0.25)")
+        ax.plot([a(xs_mpc[k][subscript]) for k in range(len(xs_mpc))], label="MPC")
+        ax.plot([a(xs_qp[k][subscript]) for k in range(len(xs_qp))], label="Learned QP")
         # ax.plot([a(xs_mlp[k][subscript]) for k in range(len(xs_mlp))], label="MLP")
         ax.axhline(y=x_ref[subscript], color='r', linestyle='--', label='Ref')
         ax.legend()

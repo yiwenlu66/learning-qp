@@ -91,7 +91,7 @@ def mpc2qp(n_mpc, m_mpc, N, A, B, Q, R, x_min, x_max, u_min, u_max, x0, x_ref, n
     return n, m, P, q, H, b
 
 
-def mpc2qp_np(n_mpc, m_mpc, N, A, B, Q, R, x_min, x_max, u_min, u_max, x0, x_ref, normalize=False):
+def mpc2qp_np(n_mpc, m_mpc, N, A, B, Q, R, x_min, x_max, u_min, u_max, x0, x_ref, normalize=False, Qf=None):
     """
     Converts Model Predictive Control (MPC) problem parameters into Quadratic Programming (QP) form using NumPy.
 
@@ -110,6 +110,7 @@ def mpc2qp_np(n_mpc, m_mpc, N, A, B, Q, R, x_min, x_max, u_min, u_max, x0, x_ref
     - x0 (np.ndarray): Initial state, shape (n_mpc,).
     - x_ref (np.ndarray): Reference state, shape (n_mpc,).
     - normalize (bool): Whether to normalize control actions.
+    - Qf (np.ndarray, optional): Terminal state cost matrix, shape (n_mpc, n_mpc).
 
     Returns:
     - n (int): Number of decision variables.
@@ -146,9 +147,12 @@ def mpc2qp_np(n_mpc, m_mpc, N, A, B, Q, R, x_min, x_max, u_min, u_max, x0, x_ref
     XU = XU.reshape(N * n_mpc, N * m_mpc)
 
     # Compute QP cost vector and matrix
-    q = -2 * XU.T @ sp_kron(np.eye(N), Q) @ (sp_kron(np.ones((N, 1)), x_ref.reshape(-1, 1)) - Ax0.reshape(-1, 1))
+    Q_kron = sp_kron(np.eye(N), Q)
+    if Qf is not None:
+        Q_kron[-n_mpc:, -n_mpc:] += Qf
+    q = -2 * XU.T @ Q_kron @ (sp_kron(np.ones((N, 1)), x_ref.reshape(-1, 1)) - Ax0.reshape(-1, 1))
     q = q.squeeze()
-    P = 2 * XU.T @ sp_kron(np.eye(N), Q) @ XU + 2 * sp_kron(np.eye(N), R)
+    P = 2 * XU.T @ Q_kron @ XU + 2 * sp_kron(np.eye(N), R)
 
     # Compute constraint matrix
     H = np.vstack([XU, -XU, np.eye(n), -np.eye(n)])
