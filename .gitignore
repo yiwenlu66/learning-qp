@@ -174,3 +174,4 @@ experiments/cartpole/test_results/
 experiments/cartpole/*.csv
 
 experiments/double_integrator/*.npz
+experiments/double_integrator/*.tex
