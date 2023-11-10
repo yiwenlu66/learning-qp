@@ -15,7 +15,7 @@ class QPSolver(nn.Module):
     where x in R^n, b in R^m.
     """
     def __init__(self, device, n, m,
-            P=None, H=None,
+            P=None, Pinv=None, H=None,
             alpha=1, beta=1,
             preconditioner=None, warm_starter=None,
             is_warm_starter_trainable=False,
@@ -30,7 +30,7 @@ class QPSolver(nn.Module):
 
         n, m: dimensions of decision variable x and constraint vector b
 
-        P, H: Optional matrices that define the QP. If not provided, must be supplied during forward pass.
+        P, Pinv, H: Optional matrices that define the QP. If not provided, must be supplied during forward pass. At most one of P and Pinv can be specified.
 
         alpha, beta: Parameters of the PDHG algorithm
 
@@ -55,13 +55,15 @@ class QPSolver(nn.Module):
         self.n = n
         self.m = m
         create_tensor = lambda t: (torch.tensor(t, dtype=torch.float, device=device).unsqueeze(0) if t is not None else None) if type(t) != torch.Tensor else t.unsqueeze(0)
+        assert (P is None) or (Pinv is None), "At most one of P and Pinv can be specified"
         self.bP = create_tensor(P)       # (1, n, n)
+        self.bPinv = create_tensor(Pinv)       # (1, n, n)
         self.bH = create_tensor(H)       # (1, m, n)
         self.alpha = alpha
         self.beta = beta
         if preconditioner is None:
             # Use dummy preconditioner which gives D=I/beta
-            self.preconditioner = Preconditioner(device, n, m, P, H, beta=beta, dummy=True)
+            self.preconditioner = Preconditioner(device, n, m, P=P, Pinv=Pinv, H=H, beta=beta, dummy=True)
         else:
             self.preconditioner = preconditioner
         self.warm_starter = warm_starter
@@ -72,7 +74,21 @@ class QPSolver(nn.Module):
 
         self.bIm = torch.eye(m, device=device).unsqueeze(0)
         self.X0 = torch.zeros((1, 2 * self.m), device=self.device)
-        self.get_sol = self.get_sol_transform(self.bP, self.bH) if self.bP is not None and self.bH is not None else None
+
+        # If P, H are constant, we can pre-compute the transformation from z to x
+        if self.bP is not None and self.bH is not None:
+            self.get_sol = self.get_sol_transform(self.bP, self.bH)
+        elif self.bPinv is not None and self.bH is not None:
+            self.get_sol = self.get_sol_transform(self.bH, bPinv=self.bPinv)
+        else:
+            self.get_sol = None
+
+        # If possible, cache intermediate results in the computation of the affine transform used for each PDHG iteration
+        if (P is not None or Pinv is not None) and H is not None and preconditioner is None:
+            self.cache_keys = ["D", "tD", "tDD", "A"]
+        else:
+            self.cache_keys = []
+        self.cache = {}
 
     def get_sol_transform(self, H, bP=None, bPinv=None):
         """
@@ -107,10 +123,35 @@ class QPSolver(nn.Module):
 
         Returns: Matrices A and B
         """
+
+        def _lookup_or_compute(keys, compute_fn):
+            """Lookup variable(s) from cache or compute them if not available.
+
+            keys: either a variable name (str), or a list of variable names
+            compute_fn: function that computes the variable(s) if not available in cache; returns a single value if keys is a string, or a tuple of values if keys is a list
+            """
+            is_single = (type(keys) == str)
+            if is_single:
+                keys = [keys]
+            if not all([key in self.cache for key in keys]):
+                values = compute_fn()
+                if is_single:
+                    values = (values,)
+                for key, value in zip(keys, values):
+                    if key in self.cache_keys:
+                        self.cache[key] = value
+            else:
+                values = tuple([self.cache[key] for key in keys])
+            return values if not is_single else values[0]
+
         # q: (bs, n), b: (bs, m)
-        if self.bP is not None:
-            bP_param = self.bP
-            P_is_inv = False
+        if self.bP is not None or self.bPinv is not None:
+            if self.bP is not None:
+                bP_param = self.bP
+                P_is_inv = False
+            else:
+                bP_param = self.bPinv
+                P_is_inv = True
         else:
             if P is not None:
                 bP_param = P
@@ -121,14 +162,16 @@ class QPSolver(nn.Module):
         op = bsolve if not P_is_inv else bma
 
         bH = self.bH if self.bH is not None else H
-        D, tD = self.preconditioner(q, b, bP_param, H, input_P_is_inversed=P_is_inv, output_tD_is_inversed=False)   # (bs, m, m) or (1, m, m)
+        D, tD = _lookup_or_compute(["D", "tD"], lambda: self.preconditioner(q, b, bP_param, H, input_P_is_inversed=P_is_inv, output_tD_is_inversed=False))   # (bs, m, m) or (1, m, m)
         mu = bmv(tD, bmv(bH, op(bP_param, q)) - b)  # (bs, m)
-        tDD = tD @ D
+        tDD = _lookup_or_compute("tDD", lambda: tD @ D)
 
-        A = torch.cat([
-            torch.cat([tDD, tD], 2),
-            torch.cat([-2 * self.alpha * tDD + self.bIm, self.bIm - 2 * self.alpha * tD], 2),
-        ], 1)   # (bs, 2m, 2m)
+        A = _lookup_or_compute("A", lambda:
+            torch.cat([
+                torch.cat([tDD, tD], 2),
+                torch.cat([-2 * self.alpha * tDD + self.bIm, self.bIm - 2 * self.alpha * tD], 2),
+            ], 1)   # (bs, 2m, 2m)
+        )
         B = torch.cat([
             mu,
             -2 * self.alpha * mu
@@ -147,10 +190,20 @@ class QPSolver(nn.Module):
         Returns: Primal and dual residuals
         """
         # Determine effective P and H matrices
-        if self.bP is not None:
-            eff_P = self.bP
+        if self.bP is not None or self.bPinv is not None:
+            if self.bP is not None:
+                eff_P = self.bP
+                P_is_inv = False
+            else:
+                eff_P = self.bPinv
+                P_is_inv = True
         else:
-            eff_P = P if P is not None else Pinv
+            if P is not None:
+                eff_P = P
+                P_is_inv = False
+            else:
+                eff_P = Pinv
+                P_is_inv = True
 
         if self.bH is not None:
             eff_H = self.bH
@@ -161,7 +214,7 @@ class QPSolver(nn.Module):
         primal_residual = bmv(eff_H, x) + b - z
 
         # Determine the operation for multiplying with P or its inverse
-        op = bsolve if Pinv is not None else bmv
+        op = bsolve if P_is_inv else bmv
 
         # Compute dual residual: Px + q + H'u
         dual_residual = op(eff_P, x) + q + bmv(eff_H.transpose(-1, -2), u)

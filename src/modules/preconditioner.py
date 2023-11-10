@@ -8,7 +8,7 @@ from ..utils.torch_utils import make_psd, vectorize_upper_triangular
 
 class Preconditioner(nn.Module):
     def __init__(self, device, n, m,
-            P=None, H=None,
+            P=None, Pinv=None, H=None,
             dummy=False,
             beta=1,
             adaptive=False):
@@ -23,13 +23,20 @@ class Preconditioner(nn.Module):
         self.m = m
         create_tensor = lambda t: torch.tensor(t, dtype=torch.float, device=device) if type(t) != torch.Tensor and t is not None else t
         self.P = create_tensor(P)       # (1, n, n)
+        self.Pinv = create_tensor(Pinv)       # (1, n, n)
         self.H = create_tensor(H)       # (1, m, n)
         self.dummy = dummy
         self.beta = beta
         self.adaptive = adaptive
         self.bP = self.P.unsqueeze(0) if P is not None else None
+        self.bPinv = self.Pinv.unsqueeze(0) if Pinv is not None else None
         self.bH = self.H.unsqueeze(0) if H is not None else None
-        self.bHPinvHt = (self.H @ solve(self.P, self.H.t())).unsqueeze(0) if P is not None and H is not None else None   # (1, m, m)
+        if P is not None and H is not None:
+            self.bHPinvHt = (self.H @ solve(self.P, self.H.t())).unsqueeze(0)   # (1, m, m)
+        elif Pinv is not None and H is not None:
+            self.bHPinvHt = (self.H @ self.Pinv @ self.H.t()).unsqueeze(0)
+        else:
+            self.bHPinvHt = None
 
         # Parameterize D using Cholesky decomposition
         num_param = m * (m + 1) // 2

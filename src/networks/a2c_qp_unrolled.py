@@ -50,6 +50,7 @@ class A2CQPUnrolled(A2CBuilder.Network):
             imitate_mpc=self.imitate_mpc,
             force_feasible=self.force_feasible,
             feasible_lambda=self.feasible_lambda,
+            is_test=self.is_test,
         )
 
         # TODO: exploit structure in value function?
@@ -110,6 +111,7 @@ class A2CQPUnrolled(A2CBuilder.Network):
         self.imitate_mpc = params["custom"]["imitate_mpc"]
         self.force_feasible = params["custom"]["force_feasible"]
         self.feasible_lambda = params["custom"]["feasible_lambda"]
+        self.is_test = params["custom"]["train_or_test"] == "test"
 
 class A2CQPUnrolledBuilder(NetworkBuilder):
     def __init__(self, **kwargs):

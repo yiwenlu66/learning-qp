@@ -112,6 +112,7 @@ with open(os.path.join(file_path, "runner_config.yaml")) as f:
     runner_config = yaml.safe_load(f)
 full_experiment_name = args.env + "_" + args.exp_name
 runner_config["params"]["seed"] = args.seed
+runner_config["params"]["config"]["train_or_test"] = args.train_or_test
 runner_config["params"]["config"]["num_actors"] = args.num_parallel
 runner_config["params"]["config"]["max_epochs"] = args.epochs
 runner_config["params"]["config"]["minibatch_size"] = args.num_parallel
@@ -155,6 +156,7 @@ if args.qp_unrolled:
         "no_b": args.no_b,
         "force_feasible": args.force_feasible,
         "feasible_lambda": 10.,
+        "train_or_test": args.train_or_test,
     }
 
 if args.mpc_baseline_N:
