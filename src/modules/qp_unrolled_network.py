@@ -2,6 +2,7 @@ import torch
 from torch import nn
 import numpy as np
 import scipy
+import functools
 from ..modules.qp_solver import QPSolver
 from ..modules.warm_starter import WarmStarter
 from ..utils.torch_utils import make_psd, interpolate_state_dicts
@@ -131,6 +132,8 @@ class QPUnrolledNetwork(nn.Module):
 
         self.solver = None
 
+        self.info = {}
+
 
     def initialize_solver(self):
         # If the problem is forced to be feasible, the dimension of the solution is increased by 1 (introduce slack variable)
@@ -170,17 +173,26 @@ class QPUnrolledNetwork(nn.Module):
             normalize=self.mpc_baseline.get("normalize", False),
         )
         if not use_osqp_oracle:
-            solver = QPSolver(x.device, n, m, P, H)
+            solver = QPSolver(x.device, n, m, P=P, H=H)
             Xs, primal_sols = solver(q, b, iters=100)
             sol = primal_sols[:, -1, :]
         else:
             f = lambda t: t.detach().cpu().numpy()
             f_sparse = lambda t: scipy.sparse.csc_matrix(t.cpu().numpy())
             t = lambda a: torch.tensor(a, dtype=torch.float, device=self.device)
+            osqp_oracle_with_iter_count = functools.partial(osqp_oracle, return_iter_count=True)
             if q.shape[0] > 1:
-                sol = t(np_batch_op(osqp_oracle, f(q), f(b), f_sparse(P), f_sparse(H)))
+                sol_np, iter_counts = np_batch_op(osqp_oracle_with_iter_count, f(q), f(b), f_sparse(P), f_sparse(H))
+                sol = t(sol_np)
             else:
-                sol = t(osqp_oracle(f(q[0, :]), f(b[0, :]), f_sparse(P), f_sparse(H))).unsqueeze(0)
+                sol_np, iter_count = osqp_oracle_with_iter_count(f(q[0, :]), f(b[0, :]), f_sparse(P), f_sparse(H))
+                sol = t(sol_np).unsqueeze(0)
+                iter_counts = np.array([iter_count])
+            # Save OSQP iteration counts into the info dict
+            if "osqp_iter_counts" not in self.info:
+                self.info["osqp_iter_counts"] = iter_counts
+            else:
+                self.info["osqp_iter_counts"] = np.concatenate([self.info["osqp_iter_counts"], iter_counts])
         return sol, (P.unsqueeze(0), q, H.unsqueeze(0), b)
 
     def get_PH(self, mlp_out=None):

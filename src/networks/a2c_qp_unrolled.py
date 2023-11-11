@@ -3,6 +3,10 @@ from torch import nn
 import torch.nn.functional as F
 from rl_games.algos_torch.network_builder import NetworkBuilder, A2CBuilder
 from ..modules.qp_unrolled_network import QPUnrolledNetwork
+import atexit
+from datetime import datetime
+import os
+import numpy as np
 
 class A2CQPUnrolled(A2CBuilder.Network):
     def __init__(self, params, **kwargs):
@@ -78,6 +82,22 @@ class A2CQPUnrolled(A2CBuilder.Network):
 
         sigma_init(self.sigma)
 
+        # Register the cleanup method to be called at exit
+        atexit.register(self.cleanup)
+
+    def cleanup(self):
+        # Implement the housekeeping logic here
+        # For example, dumping internal state to a file
+        directory = 'test_results'
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        if self.mpc_baseline is not None and self.use_osqp_for_mpc:
+            # When MPC is run using OSQP, dump the iteration counts (collected by QPUnrolledNetwork) to CSV
+            tag = f"{self.run_name}_mpc_iter_count"
+            filename = os.path.join(directory, f"{tag}_{timestamp}.csv")
+            iter_counts = self.policy_net.info['osqp_iter_counts']
+            np.savetxt(filename, iter_counts, fmt='%d')
 
     def forward(self, obs_dict):
         obs = obs_dict['obs']
@@ -112,6 +132,7 @@ class A2CQPUnrolled(A2CBuilder.Network):
         self.force_feasible = params["custom"]["force_feasible"]
         self.feasible_lambda = params["custom"]["feasible_lambda"]
         self.is_test = params["custom"]["train_or_test"] == "test"
+        self.run_name = params["custom"]["run_name"]
 
 class A2CQPUnrolledBuilder(NetworkBuilder):
     def __init__(self, **kwargs):

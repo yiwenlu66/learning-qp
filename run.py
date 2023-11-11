@@ -157,6 +157,7 @@ if args.qp_unrolled:
         "force_feasible": args.force_feasible,
         "feasible_lambda": 10.,
         "train_or_test": args.train_or_test,
+        "run_name": args.run_name,
     }
 
 if args.mpc_baseline_N:
