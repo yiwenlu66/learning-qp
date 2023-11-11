@@ -57,10 +57,8 @@ parser.add_argument("--no-b", action="store_true")
 parser.add_argument("--warm-start", action="store_true")
 parser.add_argument("--ws-loss-coef", type=float, default=10.)
 parser.add_argument("--ws-update-rate", type=float, default=0.1)
-parser.add_argument("--mpc-baseline-N", type=int, default=0)
 parser.add_argument("--batch-test", action="store_true")
 parser.add_argument("--run-name", type=str, default="")
-parser.add_argument("--use-osqp-for-mpc", action="store_true")
 parser.add_argument("--randomize", action="store_true")
 parser.add_argument("--use-residual-loss", action="store_true")
 parser.add_argument("--no-obs-normalization", action="store_true")
@@ -69,6 +67,10 @@ parser.add_argument("--initialize-from-experiment", type=str, default="")
 parser.add_argument("--force-feasible", action="store_true")
 parser.add_argument("--skip-to-steady-state", action="store_true")
 parser.add_argument("--lr-schedule", type=str, default="adaptive")
+
+parser.add_argument("--mpc-baseline-N", type=int, default=0)
+parser.add_argument("--use-osqp-for-mpc", action="store_true")
+parser.add_argument("--mpc-terminal-cost-coef", type=float, default=0.)
 args = parser.parse_args()
 
 
@@ -148,7 +150,7 @@ if args.qp_unrolled:
         "train_warm_starter": args.warm_start and args.train_or_test == "train",
         "ws_loss_coef": args.ws_loss_coef,
         "ws_update_rate": args.ws_update_rate,
-        "mpc_baseline": None if (not args.mpc_baseline_N and not args.imitate_mpc_N) else get_mpc_baseline_parameters(args.env, args.mpc_baseline_N or args.imitate_mpc_N),
+        "mpc_baseline": None if (not args.mpc_baseline_N and not args.imitate_mpc_N) else {**get_mpc_baseline_parameters(args.env, args.mpc_baseline_N or args.imitate_mpc_N), "terminal_coef": args.mpc_terminal_cost_coef},
         "imitate_mpc": args.imitate_mpc_N > 0,
         "use_osqp_for_mpc": args.use_osqp_for_mpc,
         "use_residual_loss": args.use_residual_loss,

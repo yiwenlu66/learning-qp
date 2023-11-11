@@ -171,6 +171,7 @@ class QPUnrolledNetwork(nn.Module):
             self.mpc_baseline["u_max"],
             *self.mpc_baseline["obs_to_state_and_ref"](x),
             normalize=self.mpc_baseline.get("normalize", False),
+            Qf=self.mpc_baseline.get("terminal_coef", 0.) * t(np.eye(self.mpc_baseline["n_mpc"])),
         )
         if not use_osqp_oracle:
             solver = QPSolver(x.device, n, m, P=P, H=H)

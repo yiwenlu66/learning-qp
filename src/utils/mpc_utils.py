@@ -16,7 +16,7 @@ def generate_random_problem(bs, n, m, device):
     return q, b, P, H
 
 
-def mpc2qp(n_mpc, m_mpc, N, A, B, Q, R, x_min, x_max, u_min, u_max, x0, x_ref, normalize=False):
+def mpc2qp(n_mpc, m_mpc, N, A, B, Q, R, x_min, x_max, u_min, u_max, x0, x_ref, normalize=False, Qf=None):
     """
     Converts Model Predictive Control (MPC) problem parameters into Quadratic Programming (QP) form.
 
@@ -35,6 +35,7 @@ def mpc2qp(n_mpc, m_mpc, N, A, B, Q, R, x_min, x_max, u_min, u_max, x0, x_ref, n
     - x0 (torch.Tensor): Initial state, shape (batch_size, n_mpc).
     - x_ref (torch.Tensor): Reference state, shape (batch_size, n_mpc).
     - normalize (bool): Whether to normalize the control actions. If set to True, the solution of the QP problem will be rescaled actions within range [-1, 1].
+    - Qf (torch.Tensor, optional): Terminal state cost matrix, shape (n_mpc, n_mpc).
 
     Returns:
     - n (int): Number of decision variables.
@@ -71,9 +72,15 @@ def mpc2qp(n_mpc, m_mpc, N, A, B, Q, R, x_min, x_max, u_min, u_max, x0, x_ref, n
         for j in range(k + 1):
             XU[k, :, j, :] = (torch.linalg.matrix_power(A, k - j) @ B)
     XU = XU.flatten(0, 1).flatten(1, 2)   # (N * n_MPC, N * m_MPC)
-    q = -2 * XU.t().unsqueeze(0) @ kron(torch.eye(N, device=device).unsqueeze(0), Q) @ (kron(torch.ones((bs, N, 1), device=device), x_ref.unsqueeze(-1)) - Ax0.unsqueeze(-1))   # (bs, N * m_MPC, 1)
+
+    Q_kron = torch.kron(torch.eye(N, device=A.device), Q)
+    if Qf is not None:
+        # Adjust the last block of Q_kron to include Qf
+        Q_kron[-n_mpc:, -n_mpc:] += Qf
+
+    q = -2 * XU.t().unsqueeze(0) @ Q_kron.unsqueeze(0) @ (kron(torch.ones((bs, N, 1), device=device), x_ref.unsqueeze(-1)) - Ax0.unsqueeze(-1))   # (bs, N * m_MPC, 1)
     q = q.squeeze(-1)  # (bs, N * m_MPC) = (bs, n)
-    P = 2 * XU.t() @ kron(torch.eye(N, device=device), Q) @ XU + 2 * kron(torch.eye(N, device=device), R)  # (n, n)
+    P = 2 * XU.t() @ Q_kron @ XU + 2 * kron(torch.eye(N, device=device), R)  # (n, n)
     H = torch.cat([XU, -XU, torch.eye(n, device=device), -torch.eye(n, device=device)], 0)  # (m, n)
 
     if normalize:
