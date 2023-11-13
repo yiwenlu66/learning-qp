@@ -157,6 +157,7 @@ class QPUnrolledNetwork(nn.Module):
 
     def run_mpc_baseline(self, x, use_osqp_oracle=False):
         t = lambda a: torch.tensor(a, device=x.device, dtype=torch.float)
+        eps = 1e-8
         n, m, P, q, H, b = mpc2qp(
             self.mpc_baseline["n_mpc"],
             self.mpc_baseline["m_mpc"],
@@ -165,13 +166,13 @@ class QPUnrolledNetwork(nn.Module):
             t(self.mpc_baseline["B"]),
             t(self.mpc_baseline["Q"]),
             t(self.mpc_baseline["R"]),
-            self.mpc_baseline["x_min"],
-            self.mpc_baseline["x_max"],
+            self.mpc_baseline["x_min"] + eps,
+            self.mpc_baseline["x_max"] - eps,
             self.mpc_baseline["u_min"],
             self.mpc_baseline["u_max"],
             *self.mpc_baseline["obs_to_state_and_ref"](x),
             normalize=self.mpc_baseline.get("normalize", False),
-            Qf=self.mpc_baseline.get("terminal_coef", 0.) * t(np.eye(self.mpc_baseline["n_mpc"])),
+            Qf=self.mpc_baseline.get("terminal_coef", 0.) * t(np.eye(self.mpc_baseline["n_mpc"])) if self.mpc_baseline.get("Qf", None) is None else t(self.mpc_baseline["Qf"]),
         )
         if not use_osqp_oracle:
             solver = QPSolver(x.device, n, m, P=P, H=H)
