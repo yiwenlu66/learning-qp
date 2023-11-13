@@ -23,6 +23,7 @@ class LinearSystem():
         quiet=False,
         keep_stats=False,
         randomize_std=0.,
+        reward_shaping_parameters={},
         run_name="",
         **kwargs
     ):
@@ -51,6 +52,7 @@ class LinearSystem():
             quiet (bool, optional): Suppresses debug prints when set to True.
             keep_stats (bool, optional): Whether to maintain statistics of episodes.
             randomize_std (float, optional): Standard deviation for perturbation to A, B matrices.
+            reward_shaping_parameters (dict, optional): Parameters for reward shaping.
             run_name (str, optional): Name tag for the run, useful for logging.
         """
         # Random seed and random number generators for different components
@@ -78,6 +80,7 @@ class LinearSystem():
         self.A0 = self.A
         self.B0 = self.B
         self.randomize_std = randomize_std
+        self.reward_shaping_parameters = reward_shaping_parameters
         if randomize_std > 0:
             # Copy the nominal A, B, and repeat A, B along the batch dimension to allow randomization later
             self.A = self.A.repeat(bs, 1, 1)
@@ -119,6 +122,8 @@ class LinearSystem():
         else:
             self.skip_to_steady_state = False
 
+        self.info_dict = {}
+
     def obs(self):
         """
         Returns the current observation, which is a concatenation of the current state and reference state.
@@ -140,17 +145,24 @@ class LinearSystem():
         """
         cost = self.cost(self.x - self.x_ref, self.u)
         rew_main = -cost
-        rew_steady = torch.exp(-cost)
         rew_state_bar = torch.sum(torch.log(((self.x_max - self.x) / self.barrier_thresh).clamp(1e-8, 1.)) + torch.log(((self.x - self.x_min) / self.barrier_thresh).clamp(1e-8, 1.)), dim=-1)
         rew_done = -1.0 * (self.is_done == 1)
 
+        # Reward shaping for address steady-state error: c1 * exp(-c2 * (cost - c3))
+        c1 = self.reward_shaping_parameters.get("steady_c1", 0.)
+        c2 = self.reward_shaping_parameters.get("steady_c2", 1.)
+        c3 = self.reward_shaping_parameters.get("steady_c3", 0.)
+        rew_steady = c1 * torch.exp(-c2 * (cost - c3))
+
         coef_const = 0.
         coef_main = 1.
-        coef_steady = 100.
+        coef_steady = 1.
         coef_bar = 0.
         coef_done = 100000.
 
         rew_total = coef_const + coef_main * rew_main + coef_steady * rew_steady + coef_bar * rew_state_bar + coef_done * rew_done
+
+        self.info_dict["actual_costs"] = cost + coef_done * (self.is_done == 1)
 
         if not self.quiet:
             avg_rew_main, avg_rew_state_bar, avg_rew_done, avg_rew_total = coef_main * rew_main.mean().item(), coef_bar * rew_state_bar.mean().item(), coef_done * rew_done.mean().item(), rew_total.mean().item()
@@ -165,9 +177,9 @@ class LinearSystem():
 
     def info(self):
         """
-        Returns an empty dictionary, serving as a placeholder for additional information.
+        Returns additional information.
         """
-        return {}
+        return self.info_dict
 
     def get_number_of_agents(self):
         """

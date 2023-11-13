@@ -94,6 +94,11 @@ env_creators = {
         u_eq_max=sys_param["tank"]["u_eq_max"] * np.ones(2),
         barrier_thresh=1.,
         randomize_std=(0.001 if kwargs["randomize"] else 0.),
+        reward_shaping_parameters={
+            "steady_c1": kwargs["reward_shaping"][0],
+            "steady_c2": kwargs["reward_shaping"][1],
+            "steady_c3": kwargs["reward_shaping"][2],
+        },
         **kwargs
     ),
     "cartpole": lambda **kwargs: CartPole(

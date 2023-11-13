@@ -28,6 +28,14 @@ def suppress_stdout_stderr():
         with redirect_stderr(fnull) as err, redirect_stdout(fnull) as out:
             yield (err, out)
 
+def float_list(string):
+    """Convert a string into a list of floats."""
+    try:
+        return [float(item) for item in string.split(',')]
+    except ValueError:
+        raise argparse.ArgumentTypeError("Argument must be a comma-separated list of floats")
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument("train_or_test", type=str, help="Train or test")
 parser.add_argument("env", type=str)
@@ -67,6 +75,7 @@ parser.add_argument("--initialize-from-experiment", type=str, default="")
 parser.add_argument("--force-feasible", action="store_true")
 parser.add_argument("--skip-to-steady-state", action="store_true")
 parser.add_argument("--lr-schedule", type=str, default="adaptive")
+parser.add_argument("--reward-shaping", type=float_list, default=[0., 1., 0.])
 
 parser.add_argument("--mpc-baseline-N", type=int, default=0)
 parser.add_argument("--use-osqp-for-mpc", action="store_true")
@@ -95,6 +104,7 @@ default_env_config = {
     "exp_name": args.exp_name,
     "randomize": args.randomize,
     "skip_to_steady_state": args.skip_to_steady_state,
+    "reward_shaping": args.reward_shaping,
 }
 
 blacklist_keys = lambda d, blacklist: {k: d[k] for k in d if not (k in blacklist)}
@@ -130,7 +140,7 @@ runner_config["params"]["network"]["mlp"]["units"] = [args.mlp_size_last * i for
 runner_config["params"]["config"]["save_frequency"] = args.save_freq
 runner_config["params"]["config"]["device"] = args.device
 runner_config["params"]["network"].pop("rnn")
-runner_config["params"]["lr_schedule"] = args.lr_schedule
+runner_config["params"]["config"]["lr_schedule"] = args.lr_schedule
 if args.no_obs_normalization:
     runner_config["params"]["config"]["normalize_input"] = False
 
