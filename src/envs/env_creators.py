@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 from .linear_system import LinearSystem
 from .cartpole import CartPole
 
@@ -40,10 +41,8 @@ sys_param = {
         "R": 0.1 * np.eye(2),
         "x_min": 0,
         "x_max": 20,
-        "u_min": -1,
+        "u_min": 0,
         "u_max": 8,
-        "u_eq_min": 0.,
-        "u_eq_max": 0.3,
     },
     "cartpole": {
         "n": 4,
@@ -63,6 +62,23 @@ sys_param = {
         "dt": 0.1,
     },
 }
+
+def tank_initial_generator(size, device, rng):
+    """
+    Generate initial states for the tank environment.
+    State components are sampled in [0, 16] to ensure that the initial state stays within the maximal contraint invariant set.
+    """
+    x0 = 16. * torch.rand((size, 4), generator=rng, device=device)
+    return x0
+
+def tank_ref_generator(size, device, rng):
+    """
+    Generate reference states for the tank environment.
+    Sampled across the entire state space.
+    """
+    x_ref = 20. * torch.rand((size, 4), generator=rng, device=device)
+    return x_ref
+
 
 env_creators = {
     "double_integrator": lambda **kwargs: LinearSystem(
@@ -90,15 +106,15 @@ env_creators = {
         x_max=sys_param["tank"]["x_max"] * np.ones(4),
         u_min=sys_param["tank"]["u_min"] * np.ones(2),
         u_max=sys_param["tank"]["u_max"] * np.ones(2) if not kwargs.get("skip_to_steady_state", False) else 1.0 * np.ones(2),
-        u_eq_min=sys_param["tank"]["u_eq_min"] * np.ones(2),
-        u_eq_max=sys_param["tank"]["u_eq_max"] * np.ones(2),
         barrier_thresh=1.,
         randomize_std=(0.001 if kwargs["randomize"] else 0.),
         reward_shaping_parameters={
             "steady_c1": kwargs["reward_shaping"][0],
             "steady_c2": kwargs["reward_shaping"][1],
             "steady_c3": kwargs["reward_shaping"][2],
-        },
+        } if "reward_shaping" in kwargs else {},
+        initial_generator=tank_initial_generator,
+        ref_generator=tank_ref_generator,
         **kwargs
     ),
     "cartpole": lambda **kwargs: CartPole(

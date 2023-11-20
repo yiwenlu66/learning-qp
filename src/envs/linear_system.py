@@ -25,6 +25,8 @@ class LinearSystem():
         randomize_std=0.,
         reward_shaping_parameters={},
         run_name="",
+        initial_generator=None,
+        ref_generator=None,
         **kwargs
     ):
         """
@@ -54,6 +56,8 @@ class LinearSystem():
             randomize_std (float, optional): Standard deviation for perturbation to A, B matrices.
             reward_shaping_parameters (dict, optional): Parameters for reward shaping.
             run_name (str, optional): Name tag for the run, useful for logging.
+            initial_generator (function, optional): Function that generates initial states.
+            ref_generator (function, optional): Function that generates reference states.
         """
         # Random seed and random number generators for different components
         if random_seed is not None:
@@ -124,6 +128,9 @@ class LinearSystem():
 
         self.info_dict = {}
 
+        self.initial_generator = initial_generator
+        self.ref_generator = ref_generator
+
     def obs(self):
         """
         Returns the current observation, which is a concatenation of the current state and reference state.
@@ -165,8 +172,8 @@ class LinearSystem():
         self.info_dict["actual_costs"] = cost + coef_done * (self.is_done == 1)
 
         if not self.quiet:
-            avg_rew_main, avg_rew_state_bar, avg_rew_done, avg_rew_total = coef_main * rew_main.mean().item(), coef_bar * rew_state_bar.mean().item(), coef_done * rew_done.mean().item(), rew_total.mean().item()
-            ic(avg_rew_main, avg_rew_done, avg_rew_total)
+            avg_rew_main, avg_rew_state_bar, avg_rew_done, avg_rew_steady, avg_rew_total = coef_main * rew_main.mean().item(), coef_bar * rew_state_bar.mean().item(), coef_done * rew_done.mean().item(), rew_steady.mean().item(), rew_total.mean().item()
+            ic(avg_rew_main, avg_rew_done, avg_rew_steady, avg_rew_total)
         return rew_total
 
     def done(self):
@@ -198,13 +205,27 @@ class LinearSystem():
         Generates a reference state based on the control input bounds and nominal system dynamics.
         """
         if not self.stabilization_only:
-            u_ref = self.u_eq_min + (self.u_eq_max - self.u_eq_min) * torch.rand((size, self.m), generator=self.rng_initial, device=self.device)
-            x_ref = bsolve(torch.eye(self.n, device=self.device).unsqueeze(0) - self.A0, bmv(self.B0, u_ref))
-            x_ref += self.barrier_thresh * torch.randn((size, self.n), generator=self.rng_initial, device=self.device)
-            x_ref = x_ref.clamp(self.x_min + self.barrier_thresh, self.x_max - self.barrier_thresh)
+            if self.ref_generator is not None:
+                return self.ref_generator(size, self.device, self.rng_initial)
+            else:
+                # Fall back to default reference generation
+                u_ref = self.u_eq_min + (self.u_eq_max - self.u_eq_min) * torch.rand((size, self.m), generator=self.rng_initial, device=self.device)
+                x_ref = bsolve(torch.eye(self.n, device=self.device).unsqueeze(0) - self.A0, bmv(self.B0, u_ref))
+                x_ref += self.barrier_thresh * torch.randn((size, self.n), generator=self.rng_initial, device=self.device)
+                x_ref = x_ref.clamp(self.x_min + self.barrier_thresh, self.x_max - self.barrier_thresh)
         else:
             return torch.zeros((size, self.n), device=self.device)
         return x_ref
+
+    def generate_initial(self, size):
+        """
+        Generates an initial state based on the state bounds.
+        """
+        if self.initial_generator is not None:
+            return self.initial_generator(size, self.device, self.rng_initial)
+        else:
+            x0 = self.x_min + self.barrier_thresh + (self.x_max - self.x_min - 2 * self.barrier_thresh) * torch.rand((size, self.n), generator=self.rng_initial, device=self.device)
+            return x0
 
     def reset_done_envs(self, need_reset=None, x=None, x_ref=None, randomize_seed=None):
         """
@@ -234,7 +255,7 @@ class LinearSystem():
         self.step_count[is_done] = 0
         self.cum_cost[is_done] = 0
         self.x_ref[is_done, :] = self.generate_ref(size) if x_ref is None else x_ref
-        self.x0[is_done, :] = self.x_min + self.barrier_thresh + (self.x_max - self.x_min - 2 * self.barrier_thresh) * torch.rand((size, self.n), generator=self.rng_initial, device=self.device) if x is None else x
+        self.x0[is_done, :] = self.generate_initial(size) if x is None else x
         self.x[is_done, :] = self.x0[is_done, :]
         self.is_done[is_done] = 0
         if self.randomize_std > 0:

@@ -11,6 +11,30 @@ from ..utils.osqp_utils import osqp_oracle
 from ..utils.np_batch_op import np_batch_op
 
 
+class StrictAffineLayer(nn.Module):
+    """
+    Layer mapping from obs to (q, b) in the strict affine form.
+    """
+    def __init__(self, input_size, n, m, obs_has_half_ref):
+        super().__init__()
+        self.obs_has_half_ref = obs_has_half_ref
+        self.input_size = input_size
+        self.q_layer = nn.Linear(self.input_size, n, bias=False)
+        if not self.obs_has_half_ref:
+            self.b_layer = nn.Linear(self.input_size // 2, m, bias=True)
+        else:
+            self.b_layer = nn.Linear(self.input_size, m, bias=True)
+
+    def forward(self, x):
+        if not self.obs_has_half_ref:
+            x0 = x[:, :self.input_size // 2]
+        else:
+            x0 = x
+        q = self.q_layer(x)
+        b = self.b_layer(x0)
+        return torch.cat([q, b], dim=1)
+
+
 class QPUnrolledNetwork(nn.Module):
     """
     Learn a QP problem from the input using a MLP, then solve the QP using fixed number of unrolled PDHG iterations.
@@ -24,6 +48,8 @@ class QPUnrolledNetwork(nn.Module):
         self, device, input_size, n_qp, m_qp, qp_iter, mlp_builder,
         shared_PH=False,
         affine_qb=False,
+        strict_affine_layer=False,
+        obs_has_half_ref=False,
         symmetric=False,
         no_b=False,
         use_warm_starter=False,
@@ -46,6 +72,12 @@ class QPUnrolledNetwork(nn.Module):
 
         If affine_qb == True, then q and b are restricted to be affine functions of input.
 
+        If strict_affine_layer == True (only effective when affine_qb=True), then:
+        1. q is linear w.r.t. (x0, xref) (no bias)
+        2. b is affine w.r.t. x0 (no dependence on xref)
+
+        If obs_has_half_ref == True, the policy knows that the observation is in the form (x0, xref), with each taking up half of the dimension of the observation.
+
         If symmetric == True (only effective when affine_qb=True), then:
         1. The bias terms are disabled in the modeling of q and b, i.e., q = Wq * x, b = Wb * x.
         2. The constraint is assumed to be -1 <= Hx + b <= 1, instead of Hx + b >= 0.
@@ -67,6 +99,9 @@ class QPUnrolledNetwork(nn.Module):
 
         self.shared_PH = shared_PH
         self.affine_qb = affine_qb
+        self.strict_affine_layer = strict_affine_layer
+        self.obs_has_half_ref = obs_has_half_ref
+
         self.device = device
         self.input_size = input_size
 
@@ -97,7 +132,10 @@ class QPUnrolledNetwork(nn.Module):
             self.n_mlp_output += (self.n_q_param + self.n_b_param)
             self.qb_affine_layer = None
         else:
-            self.qb_affine_layer = nn.Linear(input_size, self.n_q_param + self.n_b_param, bias=not self.symmetric)
+            if not self.strict_affine_layer:
+                self.qb_affine_layer = nn.Linear(input_size, self.n_q_param + self.n_b_param, bias=not self.symmetric)
+            else:
+                self.qb_affine_layer = StrictAffineLayer(input_size, self.n_qp, self.m_qp, self.obs_has_half_ref)
 
         if self.n_mlp_output > 0:
             self.mlp = mlp_builder(input_size, self.n_mlp_output)
@@ -157,7 +195,7 @@ class QPUnrolledNetwork(nn.Module):
 
     def run_mpc_baseline(self, x, use_osqp_oracle=False):
         t = lambda a: torch.tensor(a, device=x.device, dtype=torch.float)
-        eps = 1e-8
+        eps = 1e-3
         n, m, P, q, H, b = mpc2qp(
             self.mpc_baseline["n_mpc"],
             self.mpc_baseline["m_mpc"],
@@ -241,6 +279,7 @@ class QPUnrolledNetwork(nn.Module):
         """
         Compute q, b vectors from the parameters.
         """
+        bs = x.shape[0]
         end = self.n_P_param + self.n_H_param if not self.shared_PH else 0
         if not self.affine_qb:
             start = end

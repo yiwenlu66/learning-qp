@@ -60,6 +60,8 @@ parser.add_argument("--m-qp", type=int, default=4)
 parser.add_argument("--qp-iter", type=int, default=10)
 parser.add_argument("--shared-PH", action="store_true")
 parser.add_argument("--affine-qb", action="store_true")
+parser.add_argument("--strict-affine-layer", action="store_true")
+parser.add_argument("--obs-has-half-ref", action="store_true")
 parser.add_argument("--symmetric", action="store_true")
 parser.add_argument("--no-b", action="store_true")
 parser.add_argument("--warm-start", action="store_true")
@@ -74,6 +76,7 @@ parser.add_argument("--imitate-mpc-N", type=int, default=0)
 parser.add_argument("--initialize-from-experiment", type=str, default="")
 parser.add_argument("--force-feasible", action="store_true")
 parser.add_argument("--skip-to-steady-state", action="store_true")
+parser.add_argument("--initial-lr", type=float, default=3e-4)
 parser.add_argument("--lr-schedule", type=str, default="adaptive")
 parser.add_argument("--reward-shaping", type=float_list, default=[0., 1., 0.])
 
@@ -140,6 +143,7 @@ runner_config["params"]["network"]["mlp"]["units"] = [args.mlp_size_last * i for
 runner_config["params"]["config"]["save_frequency"] = args.save_freq
 runner_config["params"]["config"]["device"] = args.device
 runner_config["params"]["network"].pop("rnn")
+runner_config["params"]["config"]["learning_rate"] = args.initial_lr
 runner_config["params"]["config"]["lr_schedule"] = args.lr_schedule
 if args.no_obs_normalization:
     runner_config["params"]["config"]["normalize_input"] = False
@@ -156,6 +160,8 @@ if args.qp_unrolled:
         "qp_iter": args.qp_iter,
         "shared_PH": args.shared_PH,
         "affine_qb": args.affine_qb,
+        "strict_affine_layer": args.strict_affine_layer,
+        "obs_has_half_ref": args.obs_has_half_ref,
         "use_warm_starter": args.warm_start,
         "train_warm_starter": args.warm_start and args.train_or_test == "train",
         "ws_loss_coef": args.ws_loss_coef,
