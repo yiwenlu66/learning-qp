@@ -90,15 +90,19 @@ def get_row(short_name, method, n_sys=4, m_sys=2, n_qp=None, m_qp=None, qp_iter=
 
 # %%
 rows = [
+    get_row("reproduce_mpc_2_0", "mpc", N_mpc=2),
     get_row("reproduce_mpc_2_1", "mpc", N_mpc=2),
     get_row("reproduce_mpc_2_10", "mpc", N_mpc=2),
     get_row("reproduce_mpc_2_100", "mpc", N_mpc=2),
+    get_row("reproduce_mpc_4_0", "mpc", N_mpc=4),
     get_row("reproduce_mpc_4_1", "mpc", N_mpc=4),
     get_row("reproduce_mpc_4_10", "mpc", N_mpc=4),
     get_row("reproduce_mpc_4_100", "mpc", N_mpc=4),
+    get_row("reproduce_mpc_8_0", "mpc", N_mpc=8),
     get_row("reproduce_mpc_8_1", "mpc", N_mpc=8),
     get_row("reproduce_mpc_8_10", "mpc", N_mpc=8),
     get_row("reproduce_mpc_8_100", "mpc", N_mpc=8),
+    get_row("reproduce_mpc_16_0", "mpc", N_mpc=16),
     get_row("reproduce_mpc_16_1", "mpc", N_mpc=16),
     get_row("reproduce_mpc_16_10", "mpc", N_mpc=16),
     get_row("reproduce_mpc_16_100", "mpc", N_mpc=16),

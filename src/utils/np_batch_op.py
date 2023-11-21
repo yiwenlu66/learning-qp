@@ -52,7 +52,7 @@ def np_batch_op(f, *arrays):
     _worker.f = f
     _worker.arrays = arrays
 
-    with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
+    with ProcessPoolExecutor(max_workers=8) as executor:
         all_results = list(executor.map(_worker, range(bs)))
 
     processed_results = []

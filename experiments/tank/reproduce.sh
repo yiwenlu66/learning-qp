@@ -2,25 +2,6 @@
 
 # 0. Background utils and GPU scheduler
 
-# Array to store PIDs of background processes
-declare -a bg_pids
-
-# Function to add a PID to the array
-add_pid() {
-    bg_pids+=("$1")
-}
-
-# Custom cleanup function
-cleanup() {
-    echo "Cleaning up..."
-    for pid in "${bg_pids[@]}"; do
-        kill "$pid" 2>/dev/null
-    done
-}
-
-# Trap SIGINT
-trap 'cleanup' SIGINT
-
 # Define the number of GPUs available
 NUM_GPUS=$(nvidia-smi --list-gpus | wc -l)
 
@@ -50,11 +31,10 @@ find_gpu_and_run_task() {
     done
 
     # Call the run_task function with the GPU ID and additional arguments, and send it to the background
-    $run_task_function $gpu_id $@ &
+    $run_task_function $gpu_id $@ > /dev/null &
 
     # Capture the PID of the last background process
     local task_pid=$!
-    add_pid "$task_pid"
 
     # Optional: wait briefly to allow the task to start
     sleep 10
@@ -73,7 +53,7 @@ train_mlp() {
     local c2=$3
     local c3=$4
     local mlp_last_size=$5
-    CUDA_VISIBLE_DEVICES=$gpu_id python ../../run.py train tank --num-parallel 100000 --horizon 20 --epochs 5000 --mini-epochs 1 --noise-level 0. --reward-shaping ${c1},${c2},${c3} --no-obs-normalization --mlp-size-last $mlp_last_size --batch-test --exp-name reproduce_mlp_${mlp_last_size} --lr-schedule linear --initial-lr "5e-4"
+    CUDA_VISIBLE_DEVICES=$gpu_id python ../../run.py train tank --num-parallel 100000 --horizon 20 --epochs 5000 --mini-epochs 1 --noise-level 0. --reward-shaping ${c1},${c2},${c3} --no-obs-normalization --mlp-size-last $mlp_last_size --batch-test --exp-name reproduce_mlp_${mlp_last_size} --lr-schedule linear --initial-lr "5e-4" --quiet
 }
 
 # 1.2 QP of different sizes
@@ -85,7 +65,7 @@ train_qp() {
     local c3=$4
     local n_qp=$5
     local m_qp=$6
-    CUDA_VISIBLE_DEVICES=$gpu_id python ../../run.py train tank --num-parallel 100000 --horizon 20 --epochs 5000 --mini-epochs 1 --noise-level 0. --reward-shaping ${c1},${c2},${c3} --n-qp $n_qp --m-qp $m_qp --qp-unrolled --shared-PH --affine-qb --strict-affine-layer --obs-has-half-ref --use-residual-loss --no-obs-normalization --force-feasible --batch-test --exp-name reproduce_qp_${n_qp}_${m_qp} --lr-schedule linear --initial-lr "5e-4"
+    CUDA_VISIBLE_DEVICES=$gpu_id python ../../run.py train tank --num-parallel 100000 --horizon 20 --epochs 5000 --mini-epochs 1 --noise-level 0. --reward-shaping ${c1},${c2},${c3} --n-qp $n_qp --m-qp $m_qp --qp-unrolled --shared-PH --affine-qb --strict-affine-layer --obs-has-half-ref --use-residual-loss --no-obs-normalization --force-feasible --batch-test --exp-name reproduce_qp_${n_qp}_${m_qp} --lr-schedule linear --initial-lr "5e-4" --quiet
 }
 
 
@@ -98,28 +78,31 @@ test_mpc() {
     local terminal_coef=$3
     local n_qp=4
     local m_qp=24
-    CUDA_VISIBLE_DEVICES=$gpu_id python ../../run.py test tank --num-parallel 10000 --horizon 20 --epochs 5000 --mini-epochs 1 --noise-level 0. --reward-shaping 50,0.05,2 --n-qp $n_qp --m-qp $m_qp --qp-unrolled --shared-PH --affine-qb --strict-affine-layer --obs-has-half-ref --use-residual-loss --no-obs-normalization --force-feasible --batch-test --mpc-baseline-N $N --mpc-terminal-cost-coef $terminal_coef --use-osqp-for-mpc --exp-name reproduce_qp_${n_qp}_${m_qp} --run-name reproduce_mpc_${N}_${terminal_coef} --lr-schedule linear --initial-lr "5e-4"
+    CUDA_VISIBLE_DEVICES=$gpu_id python ../../run.py test tank --num-parallel 10000 --horizon 20 --epochs 5000 --mini-epochs 1 --noise-level 0. --reward-shaping 50,0.05,2 --n-qp $n_qp --m-qp $m_qp --qp-unrolled --shared-PH --affine-qb --strict-affine-layer --obs-has-half-ref --use-residual-loss --no-obs-normalization --force-feasible --batch-test --mpc-baseline-N $N --mpc-terminal-cost-coef $terminal_coef --use-osqp-for-mpc --exp-name reproduce_qp_${n_qp}_${m_qp} --run-name reproduce_mpc_${N}_${terminal_coef} --lr-schedule linear --initial-lr "5e-4" --quiet
 }
 
 test_mpc_bg() {
-    test_mpc $@ &
-    local task_pid=$!
-    add_pid "$task_pid"
+    test_mpc $@ > /dev/null &
 }
 
 test_mpc_all() {
+    test_mpc_bg 0 2 0
     test_mpc_bg 0 2 1
     test_mpc_bg 0 2 10
     test_mpc_bg 0 2 100
+    test_mpc_bg 0 4 0
     test_mpc_bg 0 4 1
     test_mpc_bg 0 4 10
     test_mpc_bg 0 4 100
+    test_mpc_bg 1 8 0
     test_mpc_bg 1 8 1
     test_mpc_bg 1 8 10
     test_mpc_bg 1 8 100
+    test_mpc_bg 1 16 0
     test_mpc_bg 1 16 1
     test_mpc_bg 1 16 10
     test_mpc_bg 1 16 100
+    wait
 }
 
 # 2.2 MLP
@@ -130,7 +113,7 @@ test_mlp() {
     local c2=$3
     local c3=$4
     local mlp_last_size=$5
-    CUDA_VISIBLE_DEVICES=$gpu_id python ../../run.py test tank --num-parallel 10000 --horizon 20 --epochs 5000 --mini-epochs 1 --noise-level 0. --reward-shaping ${c1},${c2},${c3} --no-obs-normalization --mlp-size-last $mlp_last_size --batch-test --exp-name reproduce_mlp_${mlp_last_size} --lr-schedule linear --initial-lr "5e-4"
+    CUDA_VISIBLE_DEVICES=$gpu_id python ../../run.py test tank --num-parallel 10000 --horizon 20 --epochs 5000 --mini-epochs 1 --noise-level 0. --reward-shaping ${c1},${c2},${c3} --no-obs-normalization --mlp-size-last $mlp_last_size --batch-test --exp-name reproduce_mlp_${mlp_last_size} --lr-schedule linear --initial-lr "5e-4" --quiet
 }
 
 # 2.3 QP
@@ -142,7 +125,7 @@ test_qp() {
     local c3=$4
     local n_qp=$5
     local m_qp=$6
-    CUDA_VISIBLE_DEVICES=$gpu_id python ../../run.py test tank --num-parallel 10000 --horizon 20 --epochs 5000 --mini-epochs 1 --noise-level 0. --reward-shaping ${c1},${c2},${c3} --n-qp $n_qp --m-qp $m_qp --qp-unrolled --shared-PH --affine-qb --strict-affine-layer --obs-has-half-ref --use-residual-loss --no-obs-normalization --force-feasible --batch-test --exp-name reproduce_qp_${n_qp}_${m_qp} --lr-schedule linear --initial-lr "5e-4"
+    CUDA_VISIBLE_DEVICES=$gpu_id python ../../run.py test tank --num-parallel 10000 --horizon 20 --epochs 5000 --mini-epochs 1 --noise-level 0. --reward-shaping ${c1},${c2},${c3} --n-qp $n_qp --m-qp $m_qp --qp-unrolled --shared-PH --affine-qb --strict-affine-layer --obs-has-half-ref --use-residual-loss --no-obs-normalization --force-feasible --batch-test --exp-name reproduce_qp_${n_qp}_${m_qp} --lr-schedule linear --initial-lr "5e-4" --quiet
 }
 
 # Utility function for train and test
@@ -166,7 +149,6 @@ run_and_delay() {
     local run_pid=$!
     sleep 10
     echo $run_pid
-    add_pid "$run_pid"
 }
 
 # Finally run all the tasks
@@ -179,6 +161,7 @@ run_and_delay train_and_test train_mlp test_mlp 50 0.05 2 64
 run_and_delay train_and_test train_qp test_qp 50 0.05 2 4 24
 run_and_delay train_and_test train_qp test_qp 50 0.05 2 8 48
 run_and_delay train_and_test train_qp test_qp 50 0.05 2 16 96
+
 wait
 
 python reproduce_table.py
