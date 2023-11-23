@@ -3,6 +3,8 @@ from .torch_utils import make_psd, bmv, kron
 import numpy as np
 from scipy.linalg import kron as sp_kron
 from numpy.linalg import matrix_power as np_matrix_power
+import do_mpc
+from ..envs.mpc_baseline_parameters import get_mpc_baseline_parameters
 
 
 def generate_random_problem(bs, n, m, device):
@@ -178,3 +180,113 @@ def mpc2qp_np(n_mpc, m_mpc, N, A, B, Q, R, x_min, x_max, u_min, u_max, x0, x_ref
         b = H @ Beta + b
 
     return n, m, P, q, H, b
+
+def scenario_robust_mpc(mpc_baseline_parameters, r):
+    """
+    Scenario-based robust MPC with process noise handling and constraints.
+
+    Inputs:
+    - mpc_baseline_parameters: Dict containing A, B, Q, R, Qf, disturbance magnitude, state bounds, input bounds, etc.
+
+    Output: Function mapping from x0 to u0.
+    """
+
+    # Extract parameters
+    A = mpc_baseline_parameters['A']
+    B = mpc_baseline_parameters['B']
+    Q = mpc_baseline_parameters['Q']
+    R = mpc_baseline_parameters['R']
+    n = mpc_baseline_parameters['n_mpc']
+    m = mpc_baseline_parameters['m_mpc']
+    Qf = mpc_baseline_parameters.get("terminal_coef", 0.) * np.eye(n)
+    A_scenarios = mpc_baseline_parameters.get("A_scenarios", [A])
+    B_scenarios = mpc_baseline_parameters.get("B_scenarios", [B])
+    w_scenarios = mpc_baseline_parameters.get("w_scenarios", [np.zeros((n, 1))])
+    x_min = mpc_baseline_parameters['x_min']
+    x_max = mpc_baseline_parameters['x_max']
+    u_min = mpc_baseline_parameters['u_min']
+    u_max = mpc_baseline_parameters['u_max']
+
+    # Define the model
+    model = do_mpc.model.Model('discrete')
+
+    # States, inputs, and noise variables
+    x = model.set_variable('_x', 'x', shape=(n, 1))
+    u = model.set_variable('_u', 'u', shape=(m, 1))
+    w = model.set_variable('_p', 'w', shape=(n, 1))  # Process noise
+
+    # Uncertain parameters
+    Theta_A = model.set_variable('_p', 'Theta_A', shape=A.shape)
+    Theta_B = model.set_variable('_p', 'Theta_B', shape=B.shape)
+
+    # System dynamics including process noise
+    model.set_rhs('x', Theta_A @ x + Theta_B @ u + w)
+
+    # Setup model
+    model.setup()
+
+    # MPC controller
+    mpc = do_mpc.controller.MPC(model)
+
+    # MPC parameters
+    setup_mpc = {
+        'n_horizon': mpc_baseline_parameters['N'],
+        'n_robust': 1,   # Exponential growth, so only 1 is reasonable
+        't_step': 0.1,
+        'store_full_solution': True,
+    }
+    mpc.set_param(**setup_mpc)
+
+    # Uncertain parameter scenarios
+    mpc.set_uncertainty_values(
+        Theta_A=np.array(A_scenarios),
+        Theta_B=np.array(B_scenarios),
+        w=np.array(w_scenarios),
+    )
+
+    # Constraints on states and inputs
+    eps = 1e-3
+    mpc.bounds['lower','_x', 'x'] = x_min + eps
+    mpc.bounds['upper','_x', 'x'] = x_max - eps
+    mpc.bounds['lower','_u', 'u'] = u_min
+    mpc.bounds['upper','_u', 'u'] = u_max
+
+    # Objective function
+    mterm = (x - r).T @ Qf @ (x - r)
+    lterm = (x - r).T @ Q @ (x - r) + u.T @ R @ u
+    mpc.set_objective(mterm=mterm, lterm=lterm)
+
+    # Setup MPC
+    mpc.setup()
+
+    # Control function
+    def mpc_control(x0):
+        mpc.x0 = x0
+
+        # Solve the MPC problem
+        u0 = mpc.make_step(x0)
+
+        return u0
+
+    return mpc_control
+
+
+
+if __name__ == "__main__":
+    # Test scenario MPC
+    mpc_baseline_parameters = get_mpc_baseline_parameters("double_integrator", 10)
+    mpc_baseline_parameters["A_scenarios"] = [
+        mpc_baseline_parameters["A"],
+        1.1 * mpc_baseline_parameters["A"],
+    ]
+    mpc_baseline_parameters["B_scenarios"] = [
+        mpc_baseline_parameters["B"],
+        0.9 * mpc_baseline_parameters["B"],
+        1.1 * mpc_baseline_parameters["B"],
+    ]
+    mpc_baseline_parameters["w_scenarios"] = [
+        np.zeros((2, 1)),
+        0.1 * np.ones((2, 1)),
+        -0.1 * np.ones((2, 1)),
+    ]
+    controller = scenario_robust_mpc(mpc_baseline_parameters, np.zeros(2))
