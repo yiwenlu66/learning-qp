@@ -260,7 +260,7 @@ class LinearSystem():
         self.is_done[is_done] = 0
         if self.randomize_std > 0:
             if randomize_seed is not None:
-                # Seed for randomization of dynamics is specified in function all; use it directly
+                # Seed for randomization of dynamics is specified in function call; use it directly
                 with torch.random.fork_rng():
                     torch.manual_seed(randomize_seed)
                     noise_A = torch.randn((size, self.n, self.n), device=self.device) * self.randomize_std

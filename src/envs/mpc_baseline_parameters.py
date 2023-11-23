@@ -43,8 +43,7 @@ def get_mpc_baseline_parameters(env_name, N):
 
         # Compute state and ref from obs: obs is in format (x, x_ref, x_dot, sin_theta, cos_theta, theta_dot)
         def obs_to_state_and_ref(obs):
-            x, x_ref, x_dot, sin_theta, cos_theta, theta_dot = obs[:, 0], obs[:, 1], obs[:, 2], obs[:, 3], obs[:, 4], obs[:, 5]
-            theta = torch.atan2(sin_theta, cos_theta)
+            x, x_dot, theta, theta_dot, x_ref = obs[:, 0], obs[:, 1], obs[:, 2], obs[:, 3], obs[:, 4]
             state = torch.stack([x, x_dot, theta, theta_dot], dim=1)
             zeros = torch.zeros_like(x_ref)
             ref = torch.stack([x_ref, zeros, zeros, zeros], dim=1)
