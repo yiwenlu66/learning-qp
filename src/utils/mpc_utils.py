@@ -1,8 +1,10 @@
 import torch
 from .torch_utils import make_psd, bmv, kron
 import numpy as np
+import cvxpy as cp
 from scipy.linalg import kron as sp_kron
 from numpy.linalg import matrix_power as np_matrix_power
+from scipy.linalg import block_diag
 import do_mpc
 from ..envs.mpc_baseline_parameters import get_mpc_baseline_parameters
 
@@ -260,13 +262,162 @@ def scenario_robust_mpc(mpc_baseline_parameters, r):
     mpc.setup()
 
     # Control function
-    def mpc_control(x0):
-        mpc.x0 = x0
+    def mpc_control(x0, is_active=True):
+        if is_active:
+            mpc.x0 = x0
 
-        # Solve the MPC problem
-        u0 = mpc.make_step(x0)
+            # Solve the MPC problem
+            u0 = mpc.make_step(x0)
 
-        return u0
+            return u0.squeeze(-1)
+        else:
+            return np.zeros((m,))
+
+    return mpc_control
+
+
+def tube_robust_mpc(mpc_baseline_parameters, r):
+    """
+    Tube-based robust MPC with process noise handling and constraints.
+
+    Inputs:
+    - mpc_baseline_parameters: Dict containing A, B, Q, R, Qf, disturbance magnitude, state bounds, input bounds, etc.
+
+    Output: Function mapping from x0 to u0.
+
+    Reference: https://github.com/martindoff/DC-TMPC/; we only consider the case of LTI system (so that there is no successive linearization and no A2, B2).
+    """
+    # Extract parameters
+    A = mpc_baseline_parameters['A']
+    B = mpc_baseline_parameters['B']
+    Q = mpc_baseline_parameters['Q']
+    R = mpc_baseline_parameters['R']
+    alpha = np.linalg.norm(Q)   # Here we assume Q, R are multiples of identity matrices
+    beta = np.linalg.norm(R)
+    n = mpc_baseline_parameters['n_mpc']
+    m = mpc_baseline_parameters['m_mpc']
+    Qf = mpc_baseline_parameters.get("terminal_coef", 0.) * np.eye(n)
+    N = mpc_baseline_parameters['N']
+    x_min = mpc_baseline_parameters['x_min']
+    x_max = mpc_baseline_parameters['x_max']
+    u_min = mpc_baseline_parameters['u_min']
+    u_max = mpc_baseline_parameters['u_max']
+
+    # Compute feedback K
+    def dp(A, B, Q, R, P):
+        """ Implement one iteration of the DP recursion to compute K
+        Input: state space matrices A and B, state penalty Q, input penalty R,
+            Riccati equation solution P
+        Output: gain K, P
+        """
+
+        # Compute gain
+        S = np.linalg.inv(B.T @ P @ B + R)
+        K = - S @ B.T @ P @ A
+
+        # Update P
+        P = Q + A.T @ P @ A - A.T @ P @ B @ S @ B.T @ P @ A
+
+        return K, P
+
+    P = Qf
+    K = np.zeros((N + 1, m, n))          # gain matrix
+    Phi = np.zeros((N + 1, n, n))       # closed-loop state transition matrix
+    for l in reversed(range(N)):
+        K[l, :, :], P = dp(A, B, Q, R, P)
+        Phi[l, :, :] = A + B @ K[l, :, :]
+
+    # Define optimization problem
+    N_ver = 2 ** n                     # number of vertices
+
+    # Optimization variables
+    theta = cp.Variable(N + 1)               # cost
+    v = cp.Variable((m, N))            # input perturbation
+    s_low = cp.Variable((n, N + 1))    # state perturbation (lower bound)
+    s_up = cp.Variable((n, N + 1))     # state perturbation (upper bound)
+    s_ = {}                                # create dictionary for 3D variable
+    for l in range(N_ver):
+        s_[l] = cp.Expression
+
+    # Parameters (value set at run time)
+    x0 = cp.Parameter(n)
+
+    # Define blockdiag matrices for page-wise matrix multiplication
+    K_ = block_diag(*K[:-1, :, :])
+    Phi_ = block_diag(*Phi[:-1, :, :])
+    B_ = block_diag(*([B] * N))
+
+    # Objective
+    objective = cp.Minimize(cp.sum(theta))
+
+    # Constraints
+    constr = []
+
+    # Assemble vertices
+    for l in range(N_ver):
+        # Convert l to binary string
+        l_bin = bin(l)[2:].zfill(n)
+        # Map binary string to lows and ups
+        mapping = lambda c: s_low if c == '0' else s_up
+        ss = map(mapping, l_bin)
+        s_[l] = cp.vstack([s[i, :] for (i, s) in enumerate(ss)])
+
+    for l in range(N_ver):
+        # Define some useful variables
+        s_r = cp.reshape(s_[l][:, :-1], (n * N, 1))
+        v_r = cp.reshape(v, (m * N, 1))
+        K_s = (K_ @ s_r).T
+        Phi_s = cp.reshape(Phi_ @ s_r, ((n, N)))
+        B_v = cp.reshape(B_ @ v_r, (n, N))
+
+        # SOC objective constraints
+        constr += [
+            theta[:-1] >= \
+                alpha * cp.square(s_[l][:, :-1] - np.expand_dims(r, -1)).sum(0) + \
+                beta * cp.square(v + K_s).sum(0)
+        ]
+
+        constr += [
+            theta[-1] >= cp.quad_form(s_[l][:, -1] - r, Qf)
+        ]
+
+        # Input constraints
+        constr += [v + K_s >= u_min,
+                   v + K_s <= u_max]
+
+        # Tube
+        constr += [
+            s_low[:, 1:] <= Phi_s + B_v
+        ]
+
+        constr += [
+            s_up[:, 1:] >= \
+                A @ s_[l][:, :-1] + B @ (v + K_s)
+        ]
+
+    # State constraints
+    constr += [
+        s_low[:, :-1] >= x_min,
+        s_up[:, :-1] >= x_min,
+        s_up[:, :-1] <= x_max,
+        s_low[:, :-1] <= x_max,
+        s_low[:, 0] == x0,
+        s_up[:, 0] == x0,
+    ]
+
+    # Define problem
+    problem = cp.Problem(objective, constr)
+
+    # Control function
+    def mpc_control(x0_current, is_active=True):
+        if is_active:
+            x0.value = x0_current
+            problem.solve(solver=cp.MOSEK, verbose=False)
+            K_s = K[0, :, :] @ x0_current
+            u0 = v.value[:, 0] + K_s
+            return u0
+        else:
+            return np.zeros((m,))
 
     return mpc_control
 
@@ -290,3 +441,6 @@ if __name__ == "__main__":
         -0.1 * np.ones((2, 1)),
     ]
     controller = scenario_robust_mpc(mpc_baseline_parameters, np.zeros(2))
+
+    # Test tube MPC
+    controller = tube_robust_mpc(mpc_baseline_parameters, np.zeros(2))
