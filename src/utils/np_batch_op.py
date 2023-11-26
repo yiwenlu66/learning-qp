@@ -35,7 +35,7 @@ def _worker(i):
     results = f(*[_getindex(arr, i) for arr in arrays])
     return results if isinstance(results, tuple) else (results,)
 
-def np_batch_op(f, *arrays, max_workers=8):
+def np_batch_op(f, *arrays, max_workers=int(os.environ.get("MAX_CPU_WORKERS", 8))):
     """
     Applies a function in a batch operation on multiple arrays, possibly in parallel, handling multiple return values.
     If the function 'f' returns a single value, the function returns a single concatenated value instead of a tuple.

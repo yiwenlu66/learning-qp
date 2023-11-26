@@ -422,7 +422,7 @@ def tube_robust_mpc(mpc_baseline_parameters, r):
         if is_active:
             t = time.time()
             x0.value = x0_current
-            problem.solve(solver=cp.MOSEK, verbose=False)
+            problem.solve(solver=cp.MOSEK, verbose=False, mosek_params={'MSK_IPAR_NUM_THREADS': 1})
             K_s = K[0, :, :] @ x0_current
             if v.value is not None:
                 u0 = v.value[:, 0] + K_s

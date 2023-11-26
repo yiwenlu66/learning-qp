@@ -78,11 +78,12 @@ test_mpc() {
     local N=$2
     local terminal_coef=$3
     local robust_method=$4
+    local max_cpu_workers=$5
     local n_qp=4
     local m_qp=24
 
     # Building the command
-    local cmd="CUDA_VISIBLE_DEVICES=$gpu_id python ../../run.py test tank --num-parallel 1000 --horizon 20 --epochs 5000 --mini-epochs 1 --noise-level 0.1 --randomize --reward-shaping 50,0.05,2 --n-qp $n_qp --m-qp $m_qp --qp-unrolled --shared-PH --affine-qb --strict-affine-layer --obs-has-half-ref --use-residual-loss --no-obs-normalization --force-feasible --batch-test --mpc-baseline-N $N --mpc-terminal-cost-coef $terminal_coef --exp-name reproduce_qp_${n_qp}_${m_qp} --run-name reproduce_disturbed_mpc_${N}_${terminal_coef}_${robust_method} --lr-schedule linear --initial-lr '5e-4' --quiet"
+    local cmd="CUDA_VISIBLE_DEVICES=$gpu_id MAX_CPU_WORKERS=$5 python ../../run.py test tank --num-parallel 1000 --horizon 20 --epochs 5000 --mini-epochs 1 --noise-level 0.1 --randomize --reward-shaping 50,0.05,2 --n-qp $n_qp --m-qp $m_qp --qp-unrolled --shared-PH --affine-qb --strict-affine-layer --obs-has-half-ref --use-residual-loss --no-obs-normalization --force-feasible --batch-test --mpc-baseline-N $N --mpc-terminal-cost-coef $terminal_coef --exp-name reproduce_qp_${n_qp}_${m_qp} --run-name reproduce_disturbed_mpc_${N}_${terminal_coef}_${robust_method} --lr-schedule linear --initial-lr '5e-4' --quiet"
 
     # Adding the robust mpc method flag
     cmd="$cmd --robust-mpc-method $robust_method"
@@ -102,9 +103,10 @@ test_mpc_bg() {
 }
 
 test_mpc_all() {
-    test_mpc 0 16 10 none
-    test_mpc 0 16 10 scenario
-    test_mpc 0 16 10 tube
+    test_mpc_bg 0 16 10 none 8
+    test_mpc_bg 1 16 10 scenario 224
+    test_mpc_bg 2 16 10 tube 224
+    wait
 }
 
 # 2.2 MLP

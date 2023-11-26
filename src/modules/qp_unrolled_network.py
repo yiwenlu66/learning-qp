@@ -286,7 +286,7 @@ class QPUnrolledNetwork(nn.Module):
             already_on_stats = f(self.env_info.get("already_on_stats", torch.zeros((bs,), dtype=bool))).astype(bool)
             self.is_active = np.logical_not(already_on_stats) & self.is_active   # Skip computation for instances already done
             get_solution = lambda i: self.robust_controllers[i](x0_np[i, :], is_active=self.is_active[i])
-            sol_np, running_time = np_batch_op(get_solution, np.arange(bs), max_workers=os.cpu_count())
+            sol_np, running_time = np_batch_op(get_solution, np.arange(bs))
             sol = t(sol_np)
 
             # Save running time to info dict
