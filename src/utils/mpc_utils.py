@@ -302,6 +302,7 @@ def tube_robust_mpc(mpc_baseline_parameters, r):
     x_max = mpc_baseline_parameters['x_max']
     u_min = mpc_baseline_parameters['u_min']
     u_max = mpc_baseline_parameters['u_max']
+    max_disturbance_per_dim = mpc_baseline_parameters.get('max_disturbance_per_dim', 0)
 
     # Compute feedback K
     def dp(A, B, Q, R, P):
@@ -336,8 +337,10 @@ def tube_robust_mpc(mpc_baseline_parameters, r):
     s_low = cp.Variable((n, N + 1))    # state perturbation (lower bound)
     s_up = cp.Variable((n, N + 1))     # state perturbation (upper bound)
     s_ = {}                                # create dictionary for 3D variable
+    ws = {}                            # Each item is a noise vector corresponding to a vertex
     for l in range(N_ver):
         s_[l] = cp.Expression
+        ws[l] = np.zeros((n,))
 
     # Parameters (value set at run time)
     x0 = cp.Parameter(n)
@@ -358,9 +361,12 @@ def tube_robust_mpc(mpc_baseline_parameters, r):
         # Convert l to binary string
         l_bin = bin(l)[2:].zfill(n)
         # Map binary string to lows and ups
-        mapping = lambda c: s_low if c == '0' else s_up
-        ss = map(mapping, l_bin)
+        mapping_str_to_ss = lambda c: s_low if c == '0' else s_up
+        mapping_str_to_w = lambda c: -max_disturbance_per_dim if c == '0' else max_disturbance_per_dim
+        ss = map(mapping_str_to_ss, l_bin)
+        w = np.array(list(map(mapping_str_to_w, l_bin)))   # (n,) array
         s_[l] = cp.vstack([s[i, :] for (i, s) in enumerate(ss)])
+        ws[l] = w
 
     for l in range(N_ver):
         # Define some useful variables
@@ -387,12 +393,12 @@ def tube_robust_mpc(mpc_baseline_parameters, r):
 
         # Tube
         constr += [
-            s_low[:, 1:] <= Phi_s + B_v
+            s_low[:, 1:] <= Phi_s + B_v + np.expand_dims(ws[l], -1)
         ]
 
         constr += [
             s_up[:, 1:] >= \
-                A @ s_[l][:, :-1] + B @ (v + K_s)
+                A @ s_[l][:, :-1] + B @ (v + K_s) + np.expand_dims(ws[l], -1)
         ]
 
     # State constraints
@@ -414,7 +420,11 @@ def tube_robust_mpc(mpc_baseline_parameters, r):
             x0.value = x0_current
             problem.solve(solver=cp.MOSEK, verbose=False)
             K_s = K[0, :, :] @ x0_current
-            u0 = v.value[:, 0] + K_s
+            if v.value is not None:
+                u0 = v.value[:, 0] + K_s
+            else:
+                # No solution, use default value
+                u0 = np.zeros((m,))
             return u0
         else:
             return np.zeros((m,))
@@ -443,4 +453,5 @@ if __name__ == "__main__":
     controller = scenario_robust_mpc(mpc_baseline_parameters, np.zeros(2))
 
     # Test tube MPC
+    mpc_baseline_parameters["max_disturbance_per_dim"] = 0.2
     controller = tube_robust_mpc(mpc_baseline_parameters, np.zeros(2))
