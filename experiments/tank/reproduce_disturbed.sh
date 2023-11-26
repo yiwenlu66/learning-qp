@@ -32,6 +32,7 @@ find_gpu_and_run_task() {
 
     # Call the run_task function with the GPU ID and additional arguments, and send it to the background
     $run_task_function $gpu_id $@ > /dev/null &
+    # $run_task_function $gpu_id $@ &
 
     # Capture the PID of the last background process
     local task_pid=$!
@@ -53,7 +54,7 @@ train_mlp() {
     local c2=$3
     local c3=$4
     local mlp_last_size=$5
-    CUDA_VISIBLE_DEVICES=$gpu_id python ../../run.py train tank --num-parallel 100000 --horizon 20 --epochs 5000 --mini-epochs 1 --noise-level 0.1 --randomize --reward-shaping ${c1},${c2},${c3} --no-obs-normalization --mlp-size-last $mlp_last_size --batch-test --exp-name reproduce_disturbed_mlp_${mlp_last_size} --lr-schedule linear --initial-lr "5e-4" --quiet
+    CUDA_VISIBLE_DEVICES=$gpu_id python ../../run.py train tank --num-parallel 100000 --horizon 20 --epochs 5000 --mini-epochs 1 --noise-level 0.1 --randomize --reward-shaping ${c1},${c2},${c3} --no-obs-normalization --mlp-size-last $mlp_last_size --batch-test --exp-name reproduce_disturbed_mlp_${mlp_last_size} --lr-schedule linear --initial-lr "5e-4"
 }
 
 # 1.2 QP of different sizes
@@ -65,7 +66,7 @@ train_qp() {
     local c3=$4
     local n_qp=$5
     local m_qp=$6
-    CUDA_VISIBLE_DEVICES=$gpu_id python ../../run.py train tank --num-parallel 100000 --horizon 20 --epochs 5000 --mini-epochs 1 --noise-level 0.1 --randomize --reward-shaping ${c1},${c2},${c3} --n-qp $n_qp --m-qp $m_qp --qp-unrolled --shared-PH --affine-qb --strict-affine-layer --obs-has-half-ref --use-residual-loss --no-obs-normalization --force-feasible --batch-test --exp-name reproduce_disturbed_qp_${n_qp}_${m_qp} --lr-schedule linear --initial-lr "5e-4" --quiet
+    CUDA_VISIBLE_DEVICES=$gpu_id python ../../run.py train tank --num-parallel 100000 --horizon 20 --epochs 5000 --mini-epochs 1 --noise-level 0.1 --randomize --reward-shaping ${c1},${c2},${c3} --n-qp $n_qp --m-qp $m_qp --qp-unrolled --shared-PH --affine-qb --strict-affine-layer --obs-has-half-ref --use-residual-loss --no-obs-normalization --force-feasible --batch-test --exp-name reproduce_disturbed_qp_${n_qp}_${m_qp} --lr-schedule linear --initial-lr "5e-4"
 }
 
 
@@ -101,10 +102,9 @@ test_mpc_bg() {
 }
 
 test_mpc_all() {
-    test_mpc_bg 0 16 10 none
-    test_mpc_bg 0 16 10 scenario
-    test_mpc_bg 1 16 10 tube
-    wait
+    test_mpc 0 16 10 none
+    test_mpc 0 16 10 scenario
+    test_mpc 0 16 10 tube
 }
 
 # 2.2 MLP
@@ -115,7 +115,7 @@ test_mlp() {
     local c2=$3
     local c3=$4
     local mlp_last_size=$5
-    CUDA_VISIBLE_DEVICES=$gpu_id python ../../run.py test tank --num-parallel 1000 --horizon 20 --epochs 5000 --mini-epochs 1 --noise-level 0.1 --randomize --reward-shaping ${c1},${c2},${c3} --no-obs-normalization --mlp-size-last $mlp_last_size --batch-test --exp-name reproduce_disturbed_mlp_${mlp_last_size} --lr-schedule linear --initial-lr "5e-4" --quiet
+    CUDA_VISIBLE_DEVICES=$gpu_id python ../../run.py test tank --num-parallel 1000 --horizon 20 --epochs 5000 --mini-epochs 1 --noise-level 0.1 --randomize --reward-shaping ${c1},${c2},${c3} --no-obs-normalization --mlp-size-last $mlp_last_size --batch-test --exp-name reproduce_disturbed_mlp_${mlp_last_size} --lr-schedule linear --initial-lr "5e-4"
 }
 
 # 2.3 QP
@@ -127,7 +127,7 @@ test_qp() {
     local c3=$4
     local n_qp=$5
     local m_qp=$6
-    CUDA_VISIBLE_DEVICES=$gpu_id python ../../run.py test tank --num-parallel 10000 --horizon 20 --epochs 5000 --mini-epochs 1 --noise-level 0.1 --randomize --reward-shaping ${c1},${c2},${c3} --n-qp $n_qp --m-qp $m_qp --qp-unrolled --shared-PH --affine-qb --strict-affine-layer --obs-has-half-ref --use-residual-loss --no-obs-normalization --force-feasible --batch-test --exp-name reproduce_disturbed_qp_${n_qp}_${m_qp} --lr-schedule linear --initial-lr "5e-4" --quiet
+    CUDA_VISIBLE_DEVICES=$gpu_id python ../../run.py test tank --num-parallel 10000 --horizon 20 --epochs 5000 --mini-epochs 1 --noise-level 0.1 --randomize --reward-shaping ${c1},${c2},${c3} --n-qp $n_qp --m-qp $m_qp --qp-unrolled --shared-PH --affine-qb --strict-affine-layer --obs-has-half-ref --use-residual-loss --no-obs-normalization --force-feasible --batch-test --exp-name reproduce_disturbed_qp_${n_qp}_${m_qp} --lr-schedule linear --initial-lr "5e-4"
 }
 
 # Utility function for train and test
@@ -166,4 +166,4 @@ run_and_delay train_and_test train_qp test_qp 50 0.05 2 16 96
 
 wait
 
-# python reproduce_table.py
+python reproduce_table_disturbed.py
