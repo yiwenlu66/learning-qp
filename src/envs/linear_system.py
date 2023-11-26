@@ -22,19 +22,19 @@ class LinearSystem():
         random_seed=None,
         quiet=False,
         keep_stats=False,
-        randomize_std=0.,
         reward_shaping_parameters={},
         run_name="",
         initial_generator=None,
         ref_generator=None,
+        randomizer=None,
         **kwargs
     ):
         """
         Initializes the LinearSystem environment with given parameters.
 
         Parameters:
-            A (ndarray): System dynamics matrix. Perturbed with standard deviation randomize_std.
-            B (ndarray): Input matrix. Perturbed with standard deviation randomize_std.
+            A (ndarray): System dynamics matrix. Perturbed by randomizer if specified.
+            B (ndarray): Input matrix. Perturbed by randomizer if specified.
             Q (ndarray): State cost matrix.
             R (ndarray): Control input cost matrix.
             sqrt_W (ndarray): Square root of the process noise covariance matrix.
@@ -53,11 +53,11 @@ class LinearSystem():
             random_seed (int, optional): Random seed for reproducibility.
             quiet (bool, optional): Suppresses debug prints when set to True.
             keep_stats (bool, optional): Whether to maintain statistics of episodes.
-            randomize_std (float, optional): Standard deviation for perturbation to A, B matrices.
             reward_shaping_parameters (dict, optional): Parameters for reward shaping.
             run_name (str, optional): Name tag for the run, useful for logging.
             initial_generator (function, optional): Function that generates initial states.
             ref_generator (function, optional): Function that generates reference states.
+            randomizer (function, optional): Function that randomizes the system dynamics (returns \Delta A, \Delta B).
         """
         # Random seed and random number generators for different components
         if random_seed is not None:
@@ -83,9 +83,9 @@ class LinearSystem():
         self.R = t(R)
         self.A0 = self.A
         self.B0 = self.B
-        self.randomize_std = randomize_std
+        self.randomizer = randomizer
         self.reward_shaping_parameters = reward_shaping_parameters
-        if randomize_std > 0:
+        if randomizer is not None:
             # Copy the nominal A, B, and repeat A, B along the batch dimension to allow randomization later
             self.A = self.A.repeat(bs, 1, 1)
             self.B = self.B.repeat(bs, 1, 1)
@@ -186,6 +186,7 @@ class LinearSystem():
         """
         Returns additional information.
         """
+        self.info_dict["already_on_stats"] = self.already_on_stats
         return self.info_dict
 
     def get_number_of_agents(self):
@@ -247,7 +248,7 @@ class LinearSystem():
 
         Notes:
         - The function expects self.is_done, self.x_min, self.x_max, self.barrier_thresh, self.n, self.m, self.device,
-        self.randomize_std, self.A0, and self.B0 to be pre-defined.
+        self.randomizer, self.A0, and self.B0 to be pre-defined.
         - Utilizes the conditional_fork_rng context manager for conditional seeding.
         """
         is_done = self.is_done.bool() if need_reset is None else need_reset
@@ -258,19 +259,17 @@ class LinearSystem():
         self.x0[is_done, :] = self.generate_initial(size) if x is None else x
         self.x[is_done, :] = self.x0[is_done, :]
         self.is_done[is_done] = 0
-        if self.randomize_std > 0:
+        if self.randomizer is not None:
             if randomize_seed is not None:
                 # Seed for randomization of dynamics is specified in function call; use it directly
                 with torch.random.fork_rng():
                     torch.manual_seed(randomize_seed)
-                    noise_A = torch.randn((size, self.n, self.n), device=self.device) * self.randomize_std
-                    noise_B = torch.randn((size, self.n, self.m), device=self.device) * self.randomize_std
+                    Delta_A, Delta_B = self.randomizer(size, self.device, None)
             else:
                 # No seed specified; use predefined random number generator for randomization of dynamics
-                noise_A = torch.randn((size, self.n, self.n), generator=self.rng_dynamics, device=self.device) * self.randomize_std
-                noise_B = torch.randn((size, self.n, self.m), generator=self.rng_dynamics, device=self.device) * self.randomize_std
-            self.A[is_done, :, :] = self.A0 + noise_A
-            self.B[is_done, :, :] = self.B0 + noise_B
+                Delta_A, Delta_B = self.randomizer(size, self.device, self.rng_dynamics)
+            self.A[is_done, :, :] = self.A0 + Delta_A
+            self.B[is_done, :, :] = self.B0 + Delta_B
 
 
     def reset(self, x=None, x_ref=None, randomize_seed=None):
@@ -295,7 +294,7 @@ class LinearSystem():
         x_ref = self.x_ref[i, :].cpu().numpy()
 
         # Get the A and B matrices and flatten for the ith environment
-        index = 0 if self.randomize_std == 0 else i
+        index = 0 if self.randomizer is None else i
         A = self.A[index, :, :].cpu().numpy().flatten()
         B = self.B[index, :, :].cpu().numpy().flatten()
 

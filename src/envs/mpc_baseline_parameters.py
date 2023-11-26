@@ -2,7 +2,7 @@ from .env_creators import sys_param
 import numpy as np
 import torch
 
-def get_mpc_baseline_parameters(env_name, N):
+def get_mpc_baseline_parameters(env_name, N, noise_std=0.):
     mpc_parameters = {
         "n_mpc": sys_param[env_name]["n"],
         "m_mpc": sys_param[env_name]["m"],
@@ -12,6 +12,20 @@ def get_mpc_baseline_parameters(env_name, N):
     if env_name == "tank":
         # Compute state and ref from obs: the first n entries of obs is state, and the latter n entries are ref
         mpc_parameters["obs_to_state_and_ref"] = lambda obs: (obs[:, :mpc_parameters["n_mpc"]], obs[:, mpc_parameters["n_mpc"]:])
+        A_nom = sys_param[env_name]["A"]
+        A_max = np.copy(A_nom)
+        A_max[tuple(zip(*[(0, 0), (0, 2), (1, 1), (1, 3), (2, 2), (3, 3)]))] += 0.002
+        B_nom = sys_param[env_name]["B"]
+        B_max = np.copy(B_nom)
+        B_max *= 1.02
+        mpc_parameters["A_scenarios"] = [A_nom, A_max]
+        mpc_parameters["B_scenarios"] = [B_nom, B_max]
+        n_mpc = mpc_parameters["n_mpc"]
+        mpc_parameters["w_scenarios"] = [
+            np.zeros((n_mpc, 1)),
+            2 * noise_std * np.ones((n_mpc, 1)),
+        ]
+        mpc_parameters["max_disturbance_per_dim"] = 2 * noise_std + 20 * 0.002 + 8 * 0.02
     if env_name == "cartpole":
         # Compute A, B matrices for linearized system
         m_pole = mpc_parameters["m_pole_nom"]

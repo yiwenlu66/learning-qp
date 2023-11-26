@@ -100,10 +100,17 @@ class A2CQPUnrolled(A2CBuilder.Network):
             filename = os.path.join(directory, f"{tag}_{timestamp}.csv")
             iter_counts = self.policy_net.info['osqp_iter_counts']
             np.savetxt(filename, iter_counts, fmt='%d')
+        if self.mpc_baseline is not None and self.mpc_baseline.get("robust_method", None) is not None:
+            # When robust MPC is used, dump the per-step times (collected by QPUnrolledNetwork) to CSV
+            tag = f"{self.run_name}_running_time"
+            filename = os.path.join(directory, f"{tag}_{timestamp}.csv")
+            running_time = self.policy_net.info['running_time']
+            np.savetxt(filename, running_time, fmt='%f')
 
     def forward(self, obs_dict):
         obs = obs_dict['obs']
-        mu = self.policy_net(obs)[:, :self.actions_num]
+        info = obs_dict['info']
+        mu = self.policy_net(obs, info=info)[:, :self.actions_num]
         value = self.value_net(obs)
         sigma = self.sigma
         states = None   # reserved for RNN

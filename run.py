@@ -83,6 +83,7 @@ parser.add_argument("--reward-shaping", type=float_list, default=[0., 1., 0.])
 parser.add_argument("--mpc-baseline-N", type=int, default=0)
 parser.add_argument("--use-osqp-for-mpc", action="store_true")
 parser.add_argument("--mpc-terminal-cost-coef", type=float, default=0.)
+parser.add_argument("--robust-mpc-method", type=str, default="none", choices=["none", "scenario", "tube"])
 args = parser.parse_args()
 
 
@@ -166,7 +167,7 @@ if args.qp_unrolled:
         "train_warm_starter": args.warm_start and args.train_or_test == "train",
         "ws_loss_coef": args.ws_loss_coef,
         "ws_update_rate": args.ws_update_rate,
-        "mpc_baseline": None if (not args.mpc_baseline_N and not args.imitate_mpc_N) else {**get_mpc_baseline_parameters(args.env, args.mpc_baseline_N or args.imitate_mpc_N), "terminal_coef": args.mpc_terminal_cost_coef},
+        "mpc_baseline": None if (not args.mpc_baseline_N and not args.imitate_mpc_N) else {**get_mpc_baseline_parameters(args.env, args.mpc_baseline_N or args.imitate_mpc_N, noise_std=args.noise_level), "terminal_coef": args.mpc_terminal_cost_coef},
         "imitate_mpc": args.imitate_mpc_N > 0,
         "use_osqp_for_mpc": args.use_osqp_for_mpc,
         "use_residual_loss": args.use_residual_loss,
@@ -188,6 +189,9 @@ if args.imitate_mpc_N:
     runner_config["params"]["config"]["normalize_input"] = False
     # Make MPC output normalized action
     runner_config["params"]["network"]["custom"]["mpc_baseline"]["normalize"] = True
+
+if args.robust_mpc_method != "none":
+    runner_config["params"]["network"]["custom"]["mpc_baseline"]["robust_method"] = args.robust_mpc_method
 
 if args.quiet:
     with suppress_stdout_stderr():

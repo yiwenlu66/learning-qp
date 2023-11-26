@@ -6,9 +6,11 @@ import functools
 from ..modules.qp_solver import QPSolver
 from ..modules.warm_starter import WarmStarter
 from ..utils.torch_utils import make_psd, interpolate_state_dicts
-from ..utils.mpc_utils import mpc2qp
+from ..utils.mpc_utils import mpc2qp, scenario_robust_mpc, tube_robust_mpc
 from ..utils.osqp_utils import osqp_oracle
 from ..utils.np_batch_op import np_batch_op
+import os
+from concurrent.futures import ThreadPoolExecutor
 
 
 class StrictAffineLayer(nn.Module):
@@ -172,6 +174,15 @@ class QPUnrolledNetwork(nn.Module):
 
         self.info = {}
 
+        # Reserved for storing the controllers for each simulation instance when robust MPC is enabled
+        self.robust_controllers = []
+
+        # Store info returned by env
+        self.env_info = {}
+
+        # When running batch testing, mask envs already done, to speed up computation (implemented for robust mpc); initialized at inference time since batch size is not known during initialization
+        self.is_active = None
+
 
     def initialize_solver(self):
         # If the problem is forced to be feasible, the dimension of the solution is increased by 1 (introduce slack variable)
@@ -193,47 +204,101 @@ class QPUnrolledNetwork(nn.Module):
         gt = solver_Xs[:, -1, :].detach()
         return self.ws_loss_coef * self.ws_loss_shaper(((gt - X0) ** 2).sum(dim=-1).mean())
 
+    def parallel_controller_creation(self, controller_creator, xref_np, bs):
+        """
+        Create robust MPC controlller in parallel
+        """
+        # Helper function for parallel execution
+        def task_creator(index):
+            return controller_creator(self.mpc_baseline, xref_np[index, :])
+
+        with ThreadPoolExecutor() as executor:
+            # Executing the tasks in parallel
+            results = executor.map(task_creator, range(bs))
+
+        # Collecting the results
+        self.robust_controllers.extend(results)
+
     def run_mpc_baseline(self, x, use_osqp_oracle=False):
+        robust_method = self.mpc_baseline.get("robust_method", None)
+        x0, xref = self.mpc_baseline["obs_to_state_and_ref"](x)
+        bs = x.shape[0]
+
+        # Conversions between torch and np
         t = lambda a: torch.tensor(a, device=x.device, dtype=torch.float)
-        eps = 1e-3
-        n, m, P, q, H, b = mpc2qp(
-            self.mpc_baseline["n_mpc"],
-            self.mpc_baseline["m_mpc"],
-            self.mpc_baseline["N"],
-            t(self.mpc_baseline["A"]),
-            t(self.mpc_baseline["B"]),
-            t(self.mpc_baseline["Q"]),
-            t(self.mpc_baseline["R"]),
-            self.mpc_baseline["x_min"] + eps,
-            self.mpc_baseline["x_max"] - eps,
-            self.mpc_baseline["u_min"],
-            self.mpc_baseline["u_max"],
-            *self.mpc_baseline["obs_to_state_and_ref"](x),
-            normalize=self.mpc_baseline.get("normalize", False),
-            Qf=self.mpc_baseline.get("terminal_coef", 0.) * t(np.eye(self.mpc_baseline["n_mpc"])) if self.mpc_baseline.get("Qf", None) is None else t(self.mpc_baseline["Qf"]),
-        )
-        if not use_osqp_oracle:
-            solver = QPSolver(x.device, n, m, P=P, H=H)
-            Xs, primal_sols = solver(q, b, iters=100)
-            sol = primal_sols[:, -1, :]
-        else:
-            f = lambda t: t.detach().cpu().numpy()
-            f_sparse = lambda t: scipy.sparse.csc_matrix(t.cpu().numpy())
-            t = lambda a: torch.tensor(a, dtype=torch.float, device=self.device)
-            osqp_oracle_with_iter_count = functools.partial(osqp_oracle, return_iter_count=True)
-            if q.shape[0] > 1:
-                sol_np, iter_counts = np_batch_op(osqp_oracle_with_iter_count, f(q), f(b), f_sparse(P), f_sparse(H))
-                sol = t(sol_np)
+        f = lambda t: t.detach().cpu().numpy()
+        f_sparse = lambda t: scipy.sparse.csc_matrix(t.cpu().numpy())
+
+        if robust_method is None:
+            # Run vanilla MPC without robustness
+            eps = 1e-3
+            n, m, P, q, H, b = mpc2qp(
+                self.mpc_baseline["n_mpc"],
+                self.mpc_baseline["m_mpc"],
+                self.mpc_baseline["N"],
+                t(self.mpc_baseline["A"]),
+                t(self.mpc_baseline["B"]),
+                t(self.mpc_baseline["Q"]),
+                t(self.mpc_baseline["R"]),
+                self.mpc_baseline["x_min"] + eps,
+                self.mpc_baseline["x_max"] - eps,
+                self.mpc_baseline["u_min"],
+                self.mpc_baseline["u_max"],
+                x0,
+                xref,
+                normalize=self.mpc_baseline.get("normalize", False),
+                Qf=self.mpc_baseline.get("terminal_coef", 0.) * t(np.eye(self.mpc_baseline["n_mpc"])) if self.mpc_baseline.get("Qf", None) is None else t(self.mpc_baseline["Qf"]),
+            )
+            if not use_osqp_oracle:
+                solver = QPSolver(x.device, n, m, P=P, H=H)
+                Xs, primal_sols = solver(q, b, iters=100)
+                sol = primal_sols[:, -1, :]
             else:
-                sol_np, iter_count = osqp_oracle_with_iter_count(f(q[0, :]), f(b[0, :]), f_sparse(P), f_sparse(H))
-                sol = t(sol_np).unsqueeze(0)
-                iter_counts = np.array([iter_count])
-            # Save OSQP iteration counts into the info dict
-            if "osqp_iter_counts" not in self.info:
-                self.info["osqp_iter_counts"] = iter_counts
+                osqp_oracle_with_iter_count = functools.partial(osqp_oracle, return_iter_count=True)
+                if q.shape[0] > 1:
+                    sol_np, iter_counts = np_batch_op(osqp_oracle_with_iter_count, f(q), f(b), f_sparse(P), f_sparse(H))
+                    sol = t(sol_np)
+                else:
+                    sol_np, iter_count = osqp_oracle_with_iter_count(f(q[0, :]), f(b[0, :]), f_sparse(P), f_sparse(H))
+                    sol = t(sol_np).unsqueeze(0)
+                    iter_counts = np.array([iter_count])
+                # Save OSQP iteration counts into the info dict
+                if "osqp_iter_counts" not in self.info:
+                    self.info["osqp_iter_counts"] = iter_counts
+                else:
+                    self.info["osqp_iter_counts"] = np.concatenate([self.info["osqp_iter_counts"], iter_counts])
+            return sol, (P.unsqueeze(0), q, H.unsqueeze(0), b)
+
+        elif robust_method in ["scenario", "tube"]:
+            # Set up scenario or tube MPC
+            if not self.robust_controllers:
+                # Create a controller for each simulation instance, according to the current reference (note: this assumes that the mapping from instance index to reference is constant)
+                controller_creator = {
+                    "scenario": scenario_robust_mpc,
+                    "tube": tube_robust_mpc,
+                }[robust_method]
+                xref_np = f(xref)
+                self.parallel_controller_creation(controller_creator, xref_np, bs)
+                self.is_active = np.ones((bs,), dtype=bool)
+
+            # Get solutions according to current state
+            x0_np = f(x0)
+            already_on_stats = f(self.env_info.get("already_on_stats", torch.zeros((bs,), dtype=bool))).astype(bool)
+            self.is_active = np.logical_not(already_on_stats) & self.is_active   # Skip computation for instances already done
+            get_solution = lambda i: self.robust_controllers[i](x0_np[i, :], is_active=self.is_active[i])
+            sol_np, running_time = np_batch_op(get_solution, np.arange(bs), max_workers=os.cpu_count())
+            sol = t(sol_np)
+
+            # Save running time to info dict
+            non_zero_mask = running_time != 0.  # Filter out instances that are already done
+            running_time_eff = running_time[non_zero_mask]
+            if "running_time" not in self.info:
+                self.info["running_time"] = running_time_eff
             else:
-                self.info["osqp_iter_counts"] = np.concatenate([self.info["osqp_iter_counts"], iter_counts])
-        return sol, (P.unsqueeze(0), q, H.unsqueeze(0), b)
+                self.info["running_time"] = np.concatenate([self.info["running_time"], running_time_eff])
+
+            return sol, None
+
 
     def get_PH(self, mlp_out=None):
         """
@@ -306,7 +371,9 @@ class QPUnrolledNetwork(nn.Module):
 
         return q, b
 
-    def forward(self, x, return_problem_params=False):
+    def forward(self, x, return_problem_params=False, info=None):
+        if info is not None:
+            self.env_info = info
         if self.mpc_baseline is not None:
             mpc_sol, mpc_problem_params = self.run_mpc_baseline(x, use_osqp_oracle=self.use_osqp_for_mpc)
 

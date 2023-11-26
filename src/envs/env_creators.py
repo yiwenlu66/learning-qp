@@ -79,6 +79,34 @@ def tank_ref_generator(size, device, rng):
     x_ref = 20. * torch.rand((size, 4), generator=rng, device=device)
     return x_ref
 
+def tank_randomizer(size, device, rng):
+    """
+    Generate \Delta A, \Delta B for the tank environment.
+    """
+    Delta_A11 = 0.002 * (2. * torch.rand((size,), generator=rng, device=device) - 1.)   # Leakage of tank 1
+    Delta_A22 = 0.002 * (2. * torch.rand((size,), generator=rng, device=device) - 1.)   # Leakage of tank 2
+    Delta_A13 = 0.002 * (2. * torch.rand((size,), generator=rng, device=device) - 1.)   # Leakage from tank 3 to tank 1
+    Delta_A33 = -Delta_A13  # Conservation of tank 3
+    Delta_A24 = 0.002 * (2. * torch.rand((size,), generator=rng, device=device) - 1.)   # Leakage from tank 4 to tank 2
+    Delta_A44 = -Delta_A24  # Conservation of tank 4
+    zeros = torch.zeros((size,), device=device)   # Other elements are not perturbed
+    # A = [A11 0 A13 0; 0 A22 0 A24; 0 0 A33 0; 0 0 0 A44]
+    Delta_A = torch.stack([
+        torch.stack([Delta_A11, zeros, Delta_A13, zeros], dim=1),
+        torch.stack([zeros, Delta_A22, zeros, Delta_A24], dim=1),
+        torch.stack([zeros, zeros, Delta_A33, zeros], dim=1),
+        torch.stack([zeros, zeros, zeros, Delta_A44], dim=1)
+    ], dim=1)
+
+    multiplier_B1 = 0.02 * (2. * torch.rand((size,), generator=rng, device=device) - 1.)   # Voltage perturbation on pump 1
+    multiplier_B2 = 0.02 * (2. * torch.rand((size,), generator=rng, device=device) - 1.)   # Voltage perturbation on pump 2
+    B = torch.tensor(sys_param["tank"]["B"], device=device, dtype=torch.float).unsqueeze(0)
+    Delta_B1 = multiplier_B1.unsqueeze(-1) * B[:, :, 0]
+    Delta_B2 = multiplier_B2.unsqueeze(-1) * B[:, :, 1]
+    Delta_B = torch.stack([Delta_B1, Delta_B2], dim=2)
+
+    return Delta_A, Delta_B
+
 
 env_creators = {
     "double_integrator": lambda **kwargs: LinearSystem(
@@ -107,7 +135,7 @@ env_creators = {
         u_min=sys_param["tank"]["u_min"] * np.ones(2),
         u_max=sys_param["tank"]["u_max"] * np.ones(2) if not kwargs.get("skip_to_steady_state", False) else 1.0 * np.ones(2),
         barrier_thresh=1.,
-        randomize_std=(0.001 if kwargs["randomize"] else 0.),
+        randomizer=(tank_randomizer if kwargs["randomize"] else None),
         reward_shaping_parameters={
             "steady_c1": kwargs["reward_shaping"][0],
             "steady_c2": kwargs["reward_shaping"][1],

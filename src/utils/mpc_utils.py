@@ -7,6 +7,7 @@ from numpy.linalg import matrix_power as np_matrix_power
 from scipy.linalg import block_diag
 import do_mpc
 from ..envs.mpc_baseline_parameters import get_mpc_baseline_parameters
+import time
 
 
 def generate_random_problem(bs, n, m, device):
@@ -264,14 +265,15 @@ def scenario_robust_mpc(mpc_baseline_parameters, r):
     # Control function
     def mpc_control(x0, is_active=True):
         if is_active:
+            t = time.time()
             mpc.x0 = x0
 
             # Solve the MPC problem
             u0 = mpc.make_step(x0)
 
-            return u0.squeeze(-1)
+            return u0.squeeze(-1), time.time() - t
         else:
-            return np.zeros((m,))
+            return np.zeros((m,)), 0.
 
     return mpc_control
 
@@ -375,12 +377,13 @@ def tube_robust_mpc(mpc_baseline_parameters, r):
         K_s = (K_ @ s_r).T
         Phi_s = cp.reshape(Phi_ @ s_r, ((n, N)))
         B_v = cp.reshape(B_ @ v_r, (n, N))
+        K_s_r = cp.reshape(K_s, (m, N))
 
         # SOC objective constraints
         constr += [
             theta[:-1] >= \
                 alpha * cp.square(s_[l][:, :-1] - np.expand_dims(r, -1)).sum(0) + \
-                beta * cp.square(v + K_s).sum(0)
+                beta * cp.square(v + K_s_r).sum(0)
         ]
 
         constr += [
@@ -388,8 +391,8 @@ def tube_robust_mpc(mpc_baseline_parameters, r):
         ]
 
         # Input constraints
-        constr += [v + K_s >= u_min,
-                   v + K_s <= u_max]
+        constr += [v + K_s_r >= u_min,
+                   v + K_s_r <= u_max]
 
         # Tube
         constr += [
@@ -398,7 +401,7 @@ def tube_robust_mpc(mpc_baseline_parameters, r):
 
         constr += [
             s_up[:, 1:] >= \
-                A @ s_[l][:, :-1] + B @ (v + K_s) + np.expand_dims(ws[l], -1)
+                A @ s_[l][:, :-1] + B @ (v + K_s_r) + np.expand_dims(ws[l], -1)
         ]
 
     # State constraints
@@ -417,6 +420,7 @@ def tube_robust_mpc(mpc_baseline_parameters, r):
     # Control function
     def mpc_control(x0_current, is_active=True):
         if is_active:
+            t = time.time()
             x0.value = x0_current
             problem.solve(solver=cp.MOSEK, verbose=False)
             K_s = K[0, :, :] @ x0_current
@@ -425,9 +429,9 @@ def tube_robust_mpc(mpc_baseline_parameters, r):
             else:
                 # No solution, use default value
                 u0 = np.zeros((m,))
-            return u0
+            return u0, time.time() - t
         else:
-            return np.zeros((m,))
+            return np.zeros((m,)), 0.
 
     return mpc_control
 

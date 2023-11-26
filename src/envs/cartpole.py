@@ -181,6 +181,7 @@ class CartPole():
 
     def info(self):
         """Returns additional information about the environment."""
+        self.info_dict["already_on_stats"] = self.already_on_stats
         return self.info_dict
 
     def get_number_of_agents(self):
