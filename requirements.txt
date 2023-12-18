@@ -1,0 +1,9 @@
+rl_games==1.6.0
+icecream==2.1.3
+qpsolvers==3.4.0
+pandas==2.1.0
+scipy==1.11.1
+matplotlib==3.6.3
+cvxpy==1.4.1
+do_mpc==4.6.4
+tqdm==4.66.1
