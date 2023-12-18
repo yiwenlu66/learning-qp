@@ -1,6 +1,10 @@
 import pandas as pd
 import torch
 from glob import glob
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("run_name", type=str, default="")
 
 df = pd.DataFrame(columns=[
     "Noise level",
@@ -36,57 +40,79 @@ def count_parameters(exp_name):
             total_params += value.numel()
     return total_params
 
-for noise_level in [0, 0.1, 0.2, 0.5]:
-    for rand in [False, True]:
-        try:
-            wildcard = f"mlp_noise{noise_level}{'_rand' if rand else ''}_2*"
-            mlp_df = read_csv(wildcard)
-            df.loc[len(df)] = [
-                noise_level,
-                rand,
-                "MLP",
-                "-",
-                "-",
-                "-",
-                count_parameters(f"mlp_noise{noise_level}"),
-                *get_stat(mlp_df),
-            ]
-        except:
-            print(f"Error reading file: {wildcard}")
-
-        for n in [2, 4, 8, 16]:
-            for m in [2, 4, 8, 16, 32, 64]:
+if __name__ == "__main__":
+    args = parser.parse_args()
+    if not args.run_name:
+        # Iterate over all configurations
+        for noise_level in [0, 0.1, 0.2, 0.5]:
+            for rand in [False, True]:
                 try:
-                    wildcard = f"N0_n{n}_m{m}_noise{noise_level}{'_rand' if rand else ''}_2*"
-                    qp_df = read_csv(wildcard)
+                    wildcard = f"mlp_noise{noise_level}{'_rand' if rand else ''}_2*"
+                    mlp_df = read_csv(wildcard)
                     df.loc[len(df)] = [
                         noise_level,
                         rand,
-                        "QP",
+                        "MLP",
                         "-",
-                        n,
-                        m,
-                        count_parameters(f"shared_affine_noise{noise_level}_n{n}_m{m}"),
-                        *get_stat(qp_df),
+                        "-",
+                        "-",
+                        count_parameters(f"mlp_noise{noise_level}"),
+                        *get_stat(mlp_df),
                     ]
                 except:
                     print(f"Error reading file: {wildcard}")
 
-        for N in [1, 2, 4, 8, 16]:
-            try:
-                wildcard = f"N{N}_noise{noise_level}{'_rand' if rand else ''}_2*"
-                mpc_df = read_csv(wildcard)
-                df.loc[len(df)] = [
-                    noise_level,
-                    rand,
-                    "MPC",
-                    N,
-                    2 * N,
-                    12 * N,
-                    0,
-                    *get_stat(mpc_df),
-                ]
-            except:
-                print(f"Error reading file: {wildcard}")
+                for n in [2, 4, 8, 16]:
+                    for m in [2, 4, 8, 16, 32, 64]:
+                        try:
+                            wildcard = f"N0_n{n}_m{m}_noise{noise_level}{'_rand' if rand else ''}_2*"
+                            qp_df = read_csv(wildcard)
+                            df.loc[len(df)] = [
+                                noise_level,
+                                rand,
+                                "QP",
+                                "-",
+                                n,
+                                m,
+                                count_parameters(f"shared_affine_noise{noise_level}_n{n}_m{m}"),
+                                *get_stat(qp_df),
+                            ]
+                        except:
+                            print(f"Error reading file: {wildcard}")
 
-df.to_csv("benchmark_stat.csv", index=False)
+                for N in [1, 2, 4, 8, 16]:
+                    try:
+                        wildcard = f"N{N}_noise{noise_level}{'_rand' if rand else ''}_2*"
+                        mpc_df = read_csv(wildcard)
+                        df.loc[len(df)] = [
+                            noise_level,
+                            rand,
+                            "MPC",
+                            N,
+                            2 * N,
+                            12 * N,
+                            0,
+                            *get_stat(mpc_df),
+                        ]
+                    except:
+                        print(f"Error reading file: {wildcard}")
+        df.to_csv("benchmark_stat.csv", index=False)
+    else:
+        # Stat for particular run
+        run_name = args.run_name
+        wildcard = f"{run_name}_2*"
+        raw_df = read_csv(wildcard)
+        avg_cost, avg_cost_penalized, freq_violation = get_stat(raw_df)
+        df.loc[len(df)] = [
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            avg_cost,
+            avg_cost_penalized,
+            freq_violation,
+        ]
+        df.to_csv(f"benchmark_stat_{run_name}.csv", index=False)

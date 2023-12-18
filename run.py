@@ -2,7 +2,7 @@ import argparse
 import os
 import sys
 file_path = os.path.dirname(__file__)
-sys.path.append(os.path.join(file_path, "rl_games"))
+sys.path.insert(0, os.path.join(file_path, "rl_games"))
 import yaml
 import torch
 import glob
@@ -84,6 +84,7 @@ parser.add_argument("--mpc-baseline-N", type=int, default=0)
 parser.add_argument("--use-osqp-for-mpc", action="store_true")
 parser.add_argument("--mpc-terminal-cost-coef", type=float, default=0.)
 parser.add_argument("--robust-mpc-method", type=str, default="none", choices=["none", "scenario", "tube"])
+parser.add_argument("--tube-mpc-tube-size", type=float, default=0.)
 args = parser.parse_args()
 
 
@@ -192,6 +193,7 @@ if args.imitate_mpc_N:
 
 if args.robust_mpc_method != "none":
     runner_config["params"]["network"]["custom"]["mpc_baseline"]["robust_method"] = args.robust_mpc_method
+    runner_config["params"]["network"]["custom"]["mpc_baseline"]["max_disturbance_per_dim"] = args.tube_mpc_tube_size
 
 if args.quiet:
     with suppress_stdout_stderr():

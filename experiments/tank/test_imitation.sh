@@ -11,7 +11,7 @@ run_imitate() {
     python ../../run.py $TRAIN_OR_TEST tank \
     --num-parallel 100000 \
     --horizon 20 \
-    --epochs 2000 \
+    --epochs 200 \
     --mini-epochs 1 \
     --qp-unrolled \
     --shared-PH \
@@ -19,7 +19,7 @@ run_imitate() {
     --noise-level ${noise_level} \
     --n-qp ${n_qp} \
     --m-qp ${m_qp} \
-    --imitate-mpc-N 4 \
+    --imitate-mpc-N 10 \
     --exp-name imitate
 }
 
@@ -31,7 +31,7 @@ run_fine_tune() {
     python ../../run.py $TRAIN_OR_TEST tank \
     --num-parallel 100000 \
     --horizon 20 \
-    --epochs 2000 \
+    --epochs 400 \
     --mini-epochs 1 \
     --qp-unrolled \
     --shared-PH \
@@ -44,5 +44,5 @@ run_fine_tune() {
     --exp-name fine_tune
 }
 
-# run_imitate
+run_imitate
 run_fine_tune

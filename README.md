@@ -27,7 +27,7 @@ The following scripts are also provided to reproduce the results in the paper:
 - `src/modules`: PyTorch modules, including the proposed QP-based policy and the underlying differentiable QP solver
 - `src/networks`: Wrapper around the QP-based policy for interfacing with `rl_games`
 - `src/utils`: Utility functions (customized PyTorch operations, MPC baselines, etc.)
-
+- `experiments`: Sample scripts for running experiments
 
 ## License
 

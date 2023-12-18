@@ -2,6 +2,7 @@
 from benchmark_stat import read_csv, get_stat
 from matplotlib import pyplot as plt
 import numpy as np
+import pandas as pd
 
 noise_level = 0.1
 randomize = True
@@ -12,6 +13,7 @@ m = 32
 randomize_flag = "_rand" if randomize else ""
 df_mpc = read_csv(f"N{N}_noise{noise_level}{randomize_flag}_20*")
 df_qp = read_csv(f"N0_n{n}_m{m}_noise{noise_level}{randomize_flag}_20*")
+df_mlp = read_csv(f"mlp_noise{noise_level}{randomize_flag}_20*")
 
 # %% Matrix of constraint violation
 
@@ -74,6 +76,14 @@ penalty = 100000
 get_penalized_cost = lambda df: (df['cumulative_cost'] + penalty * df["constraint_violated"]) / df['episode_length']
 penalized_cost_mpc = get_penalized_cost(df_mpc)
 penalized_cost_qp = get_penalized_cost(df_qp)
+penalized_cost_mlp = get_penalized_cost(df_mlp)
+
+# Export penalized costs to csv; each row is (penalized_cost_mpc, penalized_cost_qp, penalized_cost_mlp)
+header_line = "penalized_cost_mpc,penalized_cost_qp,penalized_cost_mlp"
+np.savetxt("penalized_costs.csv", np.column_stack((penalized_cost_mpc, penalized_cost_qp, penalized_cost_mlp)), delimiter=",", header=header_line, comments='')
+
+
+
 log_penalized_ratio = np.log10(penalized_cost_mpc / penalized_cost_qp)
 
 n, bins, patches = plt.hist(log_penalized_ratio, bins=30, edgecolor='black', alpha=0.7)

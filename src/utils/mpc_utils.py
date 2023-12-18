@@ -8,6 +8,7 @@ from scipy.linalg import block_diag
 import do_mpc
 from ..envs.mpc_baseline_parameters import get_mpc_baseline_parameters
 import time
+import warnings
 
 
 def generate_random_problem(bs, n, m, device):
@@ -294,8 +295,6 @@ def tube_robust_mpc(mpc_baseline_parameters, r):
     B = mpc_baseline_parameters['B']
     Q = mpc_baseline_parameters['Q']
     R = mpc_baseline_parameters['R']
-    alpha = np.linalg.norm(Q)   # Here we assume Q, R are multiples of identity matrices
-    beta = np.linalg.norm(R)
     n = mpc_baseline_parameters['n_mpc']
     m = mpc_baseline_parameters['m_mpc']
     Qf = mpc_baseline_parameters.get("terminal_coef", 0.) * np.eye(n)
@@ -306,50 +305,25 @@ def tube_robust_mpc(mpc_baseline_parameters, r):
     u_max = mpc_baseline_parameters['u_max']
     max_disturbance_per_dim = mpc_baseline_parameters.get('max_disturbance_per_dim', 0)
 
-    # Compute feedback K
-    def dp(A, B, Q, R, P):
-        """ Implement one iteration of the DP recursion to compute K
-        Input: state space matrices A and B, state penalty Q, input penalty R,
-            Riccati equation solution P
-        Output: gain K, P
-        """
-
-        # Compute gain
-        S = np.linalg.inv(B.T @ P @ B + R)
-        K = - S @ B.T @ P @ A
-
-        # Update P
-        P = Q + A.T @ P @ A - A.T @ P @ B @ S @ B.T @ P @ A
-
-        return K, P
-
-    P = Qf
-    K = np.zeros((N + 1, m, n))          # gain matrix
-    Phi = np.zeros((N + 1, n, n))       # closed-loop state transition matrix
-    for l in reversed(range(N)):
-        K[l, :, :], P = dp(A, B, Q, R, P)
-        Phi[l, :, :] = A + B @ K[l, :, :]
-
     # Define optimization problem
     N_ver = 2 ** n                     # number of vertices
 
     # Optimization variables
     theta = cp.Variable(N + 1)               # cost
-    v = cp.Variable((m, N))            # input perturbation
-    s_low = cp.Variable((n, N + 1))    # state perturbation (lower bound)
-    s_up = cp.Variable((n, N + 1))     # state perturbation (upper bound)
-    s_ = {}                                # create dictionary for 3D variable
+    u = cp.Variable((m, N))            # input
+    x_low = cp.Variable((n, N + 1))    # state (lower bound)
+    x_up = cp.Variable((n, N + 1))     # state (upper bound)
+    x_ = {}                                # create dictionary for 3D variable
     ws = {}                            # Each item is a noise vector corresponding to a vertex
     for l in range(N_ver):
-        s_[l] = cp.Expression
+        x_[l] = cp.Expression
         ws[l] = np.zeros((n,))
 
     # Parameters (value set at run time)
     x0 = cp.Parameter(n)
 
     # Define blockdiag matrices for page-wise matrix multiplication
-    K_ = block_diag(*K[:-1, :, :])
-    Phi_ = block_diag(*Phi[:-1, :, :])
+    A_ = block_diag(*([A] * N))
     B_ = block_diag(*([B] * N))
 
     # Objective
@@ -363,55 +337,51 @@ def tube_robust_mpc(mpc_baseline_parameters, r):
         # Convert l to binary string
         l_bin = bin(l)[2:].zfill(n)
         # Map binary string to lows and ups
-        mapping_str_to_ss = lambda c: s_low if c == '0' else s_up
+        mapping_str_to_xs = lambda c: x_low if c == '0' else x_up
         mapping_str_to_w = lambda c: -max_disturbance_per_dim if c == '0' else max_disturbance_per_dim
-        ss = map(mapping_str_to_ss, l_bin)
+        xs = map(mapping_str_to_xs, l_bin)
         w = np.array(list(map(mapping_str_to_w, l_bin)))   # (n,) array
-        s_[l] = cp.vstack([s[i, :] for (i, s) in enumerate(ss)])
+        x_[l] = cp.vstack([x[i, :] for (i, x) in enumerate(xs)])
         ws[l] = w
 
     for l in range(N_ver):
         # Define some useful variables
-        s_r = cp.reshape(s_[l][:, :-1], (n * N, 1))
-        v_r = cp.reshape(v, (m * N, 1))
-        K_s = (K_ @ s_r).T
-        Phi_s = cp.reshape(Phi_ @ s_r, ((n, N)))
-        B_v = cp.reshape(B_ @ v_r, (n, N))
-        K_s_r = cp.reshape(K_s, (m, N))
+        x_r = cp.reshape(x_[l][:, :-1], (n * N, 1))
+        u_r = cp.reshape(u, (m * N, 1))
+        A_x = cp.reshape(A_ @ x_r, ((n, N)))
+        B_u = cp.reshape(B_ @ u_r, (n, N))
 
         # SOC objective constraints
-        constr += [
-            theta[:-1] >= \
-                alpha * cp.square(s_[l][:, :-1] - np.expand_dims(r, -1)).sum(0) + \
-                beta * cp.square(v + K_s_r).sum(0)
-        ]
+        for i in range(N):
+            constr += [
+                theta[i] >= cp.quad_form(x_[l][:, i] - r, Q) + cp.quad_form(u[:, i], R)
+            ]
 
         constr += [
-            theta[-1] >= cp.quad_form(s_[l][:, -1] - r, Qf)
+            theta[-1] >= cp.quad_form(x_[l][:, -1] - r, Qf)
         ]
 
         # Input constraints
-        constr += [v + K_s_r >= u_min,
-                   v + K_s_r <= u_max]
+        constr += [u >= u_min,
+                   u <= u_max]
 
         # Tube
         constr += [
-            s_low[:, 1:] <= Phi_s + B_v + np.expand_dims(ws[l], -1)
+            x_low[:, 1:] <= A_x + B_u + np.expand_dims(ws[l], -1)
         ]
 
         constr += [
-            s_up[:, 1:] >= \
-                A @ s_[l][:, :-1] + B @ (v + K_s_r) + np.expand_dims(ws[l], -1)
+            x_up[:, 1:] >= A_x + B_u + np.expand_dims(ws[l], -1)
         ]
 
     # State constraints
     constr += [
-        s_low[:, :-1] >= x_min,
-        s_up[:, :-1] >= x_min,
-        s_up[:, :-1] <= x_max,
-        s_low[:, :-1] <= x_max,
-        s_low[:, 0] == x0,
-        s_up[:, 0] == x0,
+        x_low[:, :-1] >= x_min,
+        x_up[:, :-1] >= x_min,
+        x_up[:, :-1] <= x_max,
+        x_low[:, :-1] <= x_max,
+        x_low[:, 0] == x0,
+        x_up[:, 0] == x0,
     ]
 
     # Define problem
@@ -422,12 +392,17 @@ def tube_robust_mpc(mpc_baseline_parameters, r):
         if is_active:
             t = time.time()
             x0.value = x0_current
-            problem.solve(solver=cp.MOSEK, verbose=False, mosek_params={'MSK_IPAR_NUM_THREADS': 1})
-            K_s = K[0, :, :] @ x0_current
-            if v.value is not None:
-                u0 = v.value[:, 0] + K_s
-            else:
-                # No solution, use default value
+            try:
+                problem.solve(solver=cp.MOSEK, verbose=True, mosek_params={'MSK_IPAR_NUM_THREADS': 1})
+                if u.value is not None:
+                    u0 = u.value[:, 0]
+                else:
+                    # No solution, use default value
+                    warnings.warn("Tube MPC infeasible")
+                    u0 = np.zeros((m,))
+            except cp.error.SolverError:
+                # solver failed, use default value
+                warnings.warn("MOSEK failure")
                 u0 = np.zeros((m,))
             return u0, time.time() - t
         else:

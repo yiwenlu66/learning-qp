@@ -85,7 +85,7 @@ def get_row(short_name, method, n_sys=4, m_sys=2, n_qp=None, m_qp=None, qp_iter=
     elif method == "mpc":
         iter_count_arr = read_mpc_iter_count(short_name)
         flops = mpc_flops(n_sys, m_sys, N_mpc, iter_count_arr)
-        running_time = (baseline_time * item / baseline_flops for item in flops)
+        running_time = tuple(baseline_time * item / baseline_flops for item in flops)
     elif method == "mlp":
         flops = mlp_flops(2 * n_sys, m_sys, [i * mlp_last_size for i in [4, 2, 1]])
         running_time = baseline_time * flops / baseline_flops
@@ -110,7 +110,11 @@ def get_row(short_name, method, n_sys=4, m_sys=2, n_qp=None, m_qp=None, qp_iter=
 rows = [
     get_row("reproduce_disturbed_mpc_16_10_none", "mpc", N_mpc=16),
     get_row("reproduce_disturbed_mpc_16_10_scenario", "robust_mpc", N_mpc=16),
-    get_row("reproduce_disturbed_mpc_16_10_tube", "robust_mpc", N_mpc=16),
+    get_row("reproduce_disturbed_mpc_16_10_tube_0.05", "robust_mpc", N_mpc=16),
+    get_row("reproduce_disturbed_mpc_16_10_tube_0.1", "robust_mpc", N_mpc=16),
+    get_row("reproduce_disturbed_mpc_16_10_tube_0.2", "robust_mpc", N_mpc=16),
+    get_row("reproduce_disturbed_mpc_16_10_tube_0.25", "robust_mpc", N_mpc=16),
+    get_row("reproduce_disturbed_mpc_16_10_tube_0.3", "robust_mpc", N_mpc=16),
     get_row("reproduce_disturbed_mlp_8", "mlp", mlp_last_size=8),
     get_row("reproduce_disturbed_mlp_16", "mlp", mlp_last_size=16),
     get_row("reproduce_disturbed_mlp_32", "mlp", mlp_last_size=32),
@@ -118,6 +122,7 @@ rows = [
     get_row("reproduce_disturbed_qp_4_24", "qp", n_qp=4, m_qp=24),
     get_row("reproduce_disturbed_qp_8_48", "qp", n_qp=8, m_qp=48),
     get_row("reproduce_disturbed_qp_16_96", "qp", n_qp=16, m_qp=96),
+    get_row("reproduce_disturbed_qp_32_192", "qp", n_qp=32, m_qp=192),
 ]
 
 df_result = pd.DataFrame(rows, columns=["name", "success_rate", "avg_cost", "avg_cost_penalized", "flops", "running_time", "num_param"])

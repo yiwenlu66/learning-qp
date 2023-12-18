@@ -23,9 +23,10 @@ def get_mpc_baseline_parameters(env_name, N, noise_std=0.):
         n_mpc = mpc_parameters["n_mpc"]
         mpc_parameters["w_scenarios"] = [
             np.zeros((n_mpc, 1)),
-            2 * noise_std * np.ones((n_mpc, 1)),
+            3 * noise_std * np.ones((n_mpc, 1)),
+            -3 * noise_std * np.ones((n_mpc, 1)),
         ]
-        mpc_parameters["max_disturbance_per_dim"] = 2 * noise_std + 20 * 0.002 + 8 * 0.02
+        # mpc_parameters["max_disturbance_per_dim"] = 0.5 * (3 * noise_std + 20 * 0.002 * 2 + 8 * 0.02 * 2)
     if env_name == "cartpole":
         # Compute A, B matrices for linearized system
         m_pole = mpc_parameters["m_pole_nom"]

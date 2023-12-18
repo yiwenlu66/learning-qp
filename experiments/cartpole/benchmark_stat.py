@@ -28,7 +28,7 @@ def get_stat(df):
     return avg_cost, avg_cost_penalized, freq_violation * 1000
 
 def count_parameters(exp_name):
-    checkpoint_path = f"runs/tank_{exp_name}/nn/tank.pth"
+    checkpoint_path = f"runs/cartpole_{exp_name}/nn/cartpole.pth"
     checkpoint = torch.load(checkpoint_path)
     total_params = 0
     for key, value in checkpoint['model'].items():

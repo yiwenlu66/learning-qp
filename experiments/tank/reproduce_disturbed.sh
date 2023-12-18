@@ -79,11 +79,20 @@ test_mpc() {
     local terminal_coef=$3
     local robust_method=$4
     local max_cpu_workers=$5
+    local tube_size=$6  # Optional sixth argument
     local n_qp=4
     local m_qp=24
 
+    # Initial part of the run_name
+    local run_name="reproduce_disturbed_mpc_${N}_${terminal_coef}_${robust_method}"
+
+    # Append tube_size to run_name if it's specified
+    if [ -n "$tube_size" ]; then
+        run_name="${run_name}_${tube_size}"
+    fi
+
     # Building the command
-    local cmd="CUDA_VISIBLE_DEVICES=$gpu_id MAX_CPU_WORKERS=$5 python ../../run.py test tank --num-parallel 1000 --horizon 20 --epochs 5000 --mini-epochs 1 --noise-level 0.1 --randomize --reward-shaping 50,0.05,2 --n-qp $n_qp --m-qp $m_qp --qp-unrolled --shared-PH --affine-qb --strict-affine-layer --obs-has-half-ref --use-residual-loss --no-obs-normalization --force-feasible --batch-test --mpc-baseline-N $N --mpc-terminal-cost-coef $terminal_coef --exp-name reproduce_qp_${n_qp}_${m_qp} --run-name reproduce_disturbed_mpc_${N}_${terminal_coef}_${robust_method} --lr-schedule linear --initial-lr '5e-4' --quiet"
+    local cmd="CUDA_VISIBLE_DEVICES=$gpu_id MAX_CPU_WORKERS=$5 python ../../run.py test tank --num-parallel 1000 --horizon 20 --epochs 5000 --mini-epochs 1 --noise-level 0.1 --randomize --reward-shaping 50,0.05,2 --n-qp $n_qp --m-qp $m_qp --qp-unrolled --shared-PH --affine-qb --strict-affine-layer --obs-has-half-ref --use-residual-loss --no-obs-normalization --force-feasible --batch-test --mpc-baseline-N $N --mpc-terminal-cost-coef $terminal_coef --exp-name reproduce_qp_${n_qp}_${m_qp} --run-name $run_name --lr-schedule linear --initial-lr '5e-4' --quiet"
 
     # Adding the robust mpc method flag
     cmd="$cmd --robust-mpc-method $robust_method"
@@ -93,19 +102,30 @@ test_mpc() {
         cmd="$cmd --use-osqp-for-mpc"
     fi
 
+    # Conditional inclusion of the tube_size argument
+    if [ -n "$tube_size" ]; then
+        cmd="$cmd --tube-mpc-tube-size ${tube_size}"
+    fi
+
     # Execute the command
     eval $cmd
 }
 
 
+
 test_mpc_bg() {
     test_mpc $@ > /dev/null &
+    sleep 10
 }
 
 test_mpc_all() {
     test_mpc_bg 0 16 10 none 8
     test_mpc_bg 1 16 10 scenario 224
-    test_mpc_bg 2 16 10 tube 224
+    test_mpc_bg 2 16 10 tube 100 0.05
+    test_mpc_bg 2 16 10 tube 100 0.1
+    test_mpc_bg 2 16 10 tube 100 0.2
+    test_mpc_bg 2 16 10 tube 100 0.25
+    test_mpc_bg 2 16 10 tube 100 0.3
     wait
 }
 
@@ -129,7 +149,7 @@ test_qp() {
     local c3=$4
     local n_qp=$5
     local m_qp=$6
-    CUDA_VISIBLE_DEVICES=$gpu_id python ../../run.py test tank --num-parallel 10000 --horizon 20 --epochs 5000 --mini-epochs 1 --noise-level 0.1 --randomize --reward-shaping ${c1},${c2},${c3} --n-qp $n_qp --m-qp $m_qp --qp-unrolled --shared-PH --affine-qb --strict-affine-layer --obs-has-half-ref --use-residual-loss --no-obs-normalization --force-feasible --batch-test --exp-name reproduce_disturbed_qp_${n_qp}_${m_qp} --lr-schedule linear --initial-lr "5e-4"
+    CUDA_VISIBLE_DEVICES=$gpu_id python ../../run.py test tank --num-parallel 1000 --horizon 20 --epochs 5000 --mini-epochs 1 --noise-level 0.1 --randomize --reward-shaping ${c1},${c2},${c3} --n-qp $n_qp --m-qp $m_qp --qp-unrolled --shared-PH --affine-qb --strict-affine-layer --obs-has-half-ref --use-residual-loss --no-obs-normalization --force-feasible --batch-test --exp-name reproduce_disturbed_qp_${n_qp}_${m_qp} --lr-schedule linear --initial-lr "5e-4"
 }
 
 # Utility function for train and test
@@ -162,9 +182,11 @@ run_and_delay train_and_test train_mlp test_mlp 50 0.05 2 8
 run_and_delay train_and_test train_mlp test_mlp 50 0.05 2 16
 run_and_delay train_and_test train_mlp test_mlp 50 0.05 2 32
 run_and_delay train_and_test train_mlp test_mlp 50 0.05 2 64
+run_and_delay train_and_test train_mlp test_mlp 50 0.05 2 128
 run_and_delay train_and_test train_qp test_qp 50 0.05 2 4 24
 run_and_delay train_and_test train_qp test_qp 50 0.05 2 8 48
 run_and_delay train_and_test train_qp test_qp 50 0.05 2 16 96
+run_and_delay train_and_test train_qp test_qp 50 0.05 2 32 192
 
 wait
 
