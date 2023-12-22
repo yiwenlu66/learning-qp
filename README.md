@@ -20,7 +20,10 @@ The following scripts are also provided to reproduce the results in the paper:
 - `experiments/cartpole/reproduce.sh` for reproducing the second part of Table 1
 - `experiments/tank/reproduce_disturbed.sh` for reproducing Table 2
 
-**These scripts are run on GPU by default.**
+**These scripts are run on GPU by default.** After running each reproducing script, the following data will be saved:
+
+- Training logs in tensorboard format will be saved in `runs`
+- Test results, including the trial output for each experiment and a summary table, all in CSV format, will be saved in `test_results`
 
 ## Code structure
 
