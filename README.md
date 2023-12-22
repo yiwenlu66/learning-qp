@@ -20,6 +20,8 @@ The following scripts are also provided to reproduce the results in the paper:
 - `experiments/cartpole/reproduce.sh` for reproducing the second part of Table 1
 - `experiments/tank/reproduce_disturbed.sh` for reproducing Table 2
 
+**These scripts are run on GPU by default.**
+
 ## Code structure
 
 - `rl_games`: A customized version of the [rl_games](https://github.com/Denys88/rl_games) library for RL training
