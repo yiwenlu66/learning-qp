@@ -136,9 +136,13 @@ train_and_test() {
     shift
 
     train_pid=$(find_gpu_and_run_task $train_function $@)
-    wait $train_pid
+    while [ -e /proc/$train_pid ]; do
+        sleep 1
+    done
     test_pid=$(find_gpu_and_run_task $test_function $@)
-    wait $test_pid
+    while [ -e /proc/$test_pid ]; do
+        sleep 1
+    done
 }
 
 run_and_delay() {
