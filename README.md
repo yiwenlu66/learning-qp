@@ -5,8 +5,11 @@ Code for the paper: [Bridging the Gaps: Learning Verifiable Model-Free Quadratic
 ## Installation
 
 ```
+git clone --recursive git@github.com:yiwenlu66/learning-qp.git
 pip install -r requirements.txt
 ```
+
+Note: the `--recursive` option is necessary to make the code work correctly.
 
 ## Usage
 
