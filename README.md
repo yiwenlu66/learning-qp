@@ -1,6 +1,6 @@
-# Bridging the Gaps: Learning Verifiable Model-Free Quadratic Programming Controllers Inspired by Model Predictive Control
+# MPC-Inspired Reinforcement Learning for Verifiable Model-Free Control
 
-Code for the paper: [Bridging the Gaps: Learning Verifiable Model-Free Quadratic Programming Controllers Inspired by Model Predictive Control](https://arxiv.org/pdf/2312.05332)
+Code for the paper: [MPC-Inspired Reinforcement Learning for Verifiable Model-Free Control](https://arxiv.org/pdf/2312.05332)
 
 ## Installation
 
@@ -48,10 +48,10 @@ Part of the project is modified from [rl_games](https://github.com/Denys88/rl_ga
 If you find this project useful in your research, please consider citing:
 
 ```
-@article{lu2023bridging,
-  title={Bridging the Gaps: Learning Verifiable Model-Free Quadratic Programming Controllers Inspired by Model Predictive Control},
+@InProceedings{lu2024mpc,
+  title={MPC-Inspired Reinforcement Learning for Verifiable Model-Free Control},
   author={Lu, Yiwen and Li, Zishuo and Zhou, Yihan and Li, Na and Mo, Yilin},
-  journal={arXiv preprint arXiv:2312.05332},
-  year={2023}
+  booktitle={Proceedings of the 6th Conference on Learning for Dynamics and Control},
+  year={2024}
 }
 ```
