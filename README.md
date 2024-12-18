@@ -4,9 +4,19 @@ Code for the paper: [MPC-Inspired Reinforcement Learning for Verifiable Model-Fr
 
 ## Installation
 
-```
-git clone --recursive git@github.com:yiwenlu66/learning-qp.git
-pip install -r requirements.txt
+The code is tested on Linux with Python 3.10, PyTorch 2.1.0, and CUDA 12.0. It is recommended to use a conda environment for installation:
+
+```bash
+# Create and activate conda environment
+conda create -n learning-qp python=3.10
+conda activate learning-qp
+
+# Clone repository
+git clone --recursive https://github.com/yiwenlu66/learning-qp.git
+cd learning-qp
+
+# Install dependencies
+pip install -e .
 ```
 
 Note: the `--recursive` option is necessary to make the code work correctly.
@@ -14,7 +24,7 @@ Note: the `--recursive` option is necessary to make the code work correctly.
 ## Usage
 
 ```
-python train_or_test env_name [--options]
+python run.py train_or_test env_name [--options]
 ```
 
 The following scripts are also provided to reproduce the results in the paper:

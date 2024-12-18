@@ -175,3 +175,5 @@ experiments/cartpole/*.csv
 
 experiments/double_integrator/*.npz
 experiments/double_integrator/*.tex
+
+learning-qp.txt
